@@ -144,7 +144,7 @@ namespace YARG.Gameplay
 
                 // Song specific textures
                 var tm = GetComponent<TextureManager>();
-                var songBg = GameManager.Song.LoadBackground(true);
+                using var songBg = GameManager.Song.LoadBackground(true);
 
                 foreach (var renderer in editorRenderers)
                 {
@@ -179,59 +179,71 @@ namespace YARG.Gameplay
             }
 #endif
 
-            using var result = VenueLoader.GetVenue(GameManager.Song, out _source);
+            var result = VenueLoader.GetVenue(GameManager.Song, out _source);
 
             if (result == null)
             {
                 return;
             }
 
-            var vocalGender = GameManager.Song.VocalGender;
-
-            var colorDim = _backgroundDimmer.color.WithAlpha(1 - SettingsManager.Settings.SongBackgroundOpacity.Value);
-
-            _backgroundDimmer.color = colorDim;
-
-            // If we have a venue hint for the song and we can load the hinted yarground, prefer that
-            var hint = GameManager.Song.VenueHint;
-            if (!string.IsNullOrWhiteSpace(hint))
+            bool resultTransferred = false;
+            try
             {
-                if (await AddressableVenueExists(hint))
+                var vocalGender = GameManager.Song.VocalGender;
+
+                var colorDim = _backgroundDimmer.color.WithAlpha(1 - SettingsManager.Settings.SongBackgroundOpacity.Value);
+
+                _backgroundDimmer.color = colorDim;
+
+                // If we have a venue hint for the song and we can load the hinted yarground, prefer that
+                var hint = GameManager.Song.VenueHint;
+                if (!string.IsNullOrWhiteSpace(hint))
                 {
-                    var loaded = await LoadAddressableYarground(hint, vocalGender);
-                    if (loaded)
+                    if (await AddressableVenueExists(hint))
                     {
-                        GameManager.CrowdEventHandler.Start();
-                        return;
+                        var loaded = await LoadAddressableYarground(hint, vocalGender);
+                        if (loaded)
+                        {
+                            GameManager.CrowdEventHandler.Start();
+                            return;
+                        }
                     }
                 }
-            }
 
-            // Hint didn't resolve or failed to load, so pretend it didn't exist
+                // Hint didn't resolve or failed to load, so pretend it didn't exist
 
-            _type = result.Type;
+                _type = result.Type;
 
-            // Start crowd event handler now if we aren't waiting on a yarground
-            // TODO: Figure out how to decouple this
-            if (_type != BackgroundType.Yarground)
-            {
-                GameManager.CrowdEventHandler.Start();
-            }
-
-            switch (_type)
-            {
-                case BackgroundType.Yarground:
-                    await LoadYarground(result);
+                // Start crowd event handler now if we aren't waiting on a yarground
+                // TODO: Figure out how to decouple this
+                if (_type != BackgroundType.Yarground)
+                {
                     GameManager.CrowdEventHandler.Start();
-                    break;
-                case BackgroundType.Video:
-                    LoadVideoBackground(result);
-                    break;
-                case BackgroundType.Image:
-                    _backgroundImage.texture = result.Image.LoadTexture(false);
-                    _backgroundImage.uvRect = new Rect(0f, 0f, 1f, -1f);
-                    _backgroundImage.gameObject.SetActive(true);
-                    break;
+                }
+
+                switch (_type)
+                {
+                    case BackgroundType.Yarground:
+                        resultTransferred = true;
+                        await LoadYarground(result);
+                        GameManager.CrowdEventHandler.Start();
+                        break;
+                    case BackgroundType.Video:
+                        LoadVideoBackground(result);
+                        break;
+                    case BackgroundType.Image:
+                        _backgroundImage.texture = result.Image.LoadTexture(false);
+                        _backgroundImage.uvRect = new Rect(0f, 0f, 1f, -1f);
+                        _backgroundImage.gameObject.SetActive(true);
+                        break;
+                }
+            }
+            finally
+            {
+                if (!resultTransferred)
+                {
+                    result.Dispose();
+                }
             }
         }
 
@@ -293,28 +305,48 @@ namespace YARG.Gameplay
             return true;
         }
 
+        // Takes ownership of result: its stream is handed to the venue's BundleBackgroundManager, or disposed on failure
         private async UniTask LoadYarground(BackgroundResult result)
         {
-            var bundle = AssetBundle.LoadFromStream(result.Stream);
-            AssetBundle shaderBundle = null;
-
-            // KEEP THIS PATH LOWERCASE
-            // Breaks things for other platforms, because Unity
-            var bg = (GameObject) await bundle.LoadAssetAsync<GameObject>(
-                BackgroundHelper.BACKGROUND_PREFAB_PATH.ToLowerInvariant());
-
-            // Load Metal shaders, if necessary
-            shaderBundle = BackgroundHelper.LoadMetalShaders(bundle, bg, BackgroundHelper.ExportType.Background);
-
-            // Load custom audio
-            await LoadCustomAudioAssets(bg, bundle);
-
-            var gender = GameManager.Song.VocalGender;
-            await LoadYargroundPrefab(bg, gender, manager =>
+            AssetBundle bundle = null;
+            bool bundleTransferred = false;
+            try
             {
-                manager.Bundle = bundle;
-                manager.ShaderBundles.Add(shaderBundle);
-            });
+                bundle = AssetBundle.LoadFromStream(result.Stream);
+                AssetBundle shaderBundle = null;
+
+                // KEEP THIS PATH LOWERCASE
+                // Breaks things for other platforms, because Unity
+                var bg = (GameObject) await bundle.LoadAssetAsync<GameObject>(
+                    BackgroundHelper.BACKGROUND_PREFAB_PATH.ToLowerInvariant());
+
+                // Load Metal shaders, if necessary
+                shaderBundle = BackgroundHelper.LoadMetalShaders(bundle, bg, BackgroundHelper.ExportType.Background);
+
+                // Load custom audio
+                await LoadCustomAudioAssets(bg, bundle);
+
+                var gender = GameManager.Song.VocalGender;
+                await LoadYargroundPrefab(bg, gender, manager =>
+                {
+                    manager.Bundle = bundle;
+                    manager.BundleStream = result.Stream;
+                    bundleTransferred = true;
+                    manager.ShaderBundles.Add(shaderBundle);
+                });
+            }
+            finally
+            {
+                if (!bundleTransferred)
+                {
+                    if (bundle != null)
+                    {
+                        bundle.Unload(true);
+                    }
+
+                    result.Dispose();
+                }
+            }
         }
 
         private async UniTask LoadYargroundPrefab(GameObject bg, VocalGender gender,
@@ -325,7 +357,7 @@ namespace YARG.Gameplay
             var renderers = bg.GetComponentsInChildren<Renderer>(true);
 
             var textureManager = GetComponent<TextureManager>();
-            var songBackground = GameManager.Song.LoadBackground(SettingsManager.Settings.CensorMatureContent.Value);
+            using var songBackground = GameManager.Song.LoadBackground(SettingsManager.Settings.CensorMatureContent.Value);
 
             foreach (var renderer in renderers)
             {
