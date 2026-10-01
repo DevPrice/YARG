@@ -1,7 +1,7 @@
 ﻿using System.Runtime.InteropServices;
 using ManagedBass;
 
-#if !(UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN)
+#if !(UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR))
 using System;
 #endif
 
@@ -31,7 +31,7 @@ namespace YARG.Audio.BASS
         /// </remarks>
         public int FFTSize
         {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR)
             get => lFFTsize;
             // set => lFFTsize = value;
 #else
@@ -41,7 +41,7 @@ namespace YARG.Audio.BASS
         }
 
         // longs in C are always 32-bit on Windows/MSVC, but are a pointer size on Unix/macOS/GCC
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR)
         private int lFFTsize;
 #else
         private IntPtr lFFTsize;
@@ -55,7 +55,7 @@ namespace YARG.Audio.BASS
         /// </remarks>
         public int OversampleFactor
         {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR)
             get => lOsamp;
             set => lOsamp = value;
 #else
@@ -65,7 +65,7 @@ namespace YARG.Audio.BASS
         }
 
         // longs in C are always 32-bit on Windows/MSVC, but are a pointer size on Unix/macOS/GCC
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR)
         private int lOsamp;
 #else
         private IntPtr lOsamp;
@@ -80,7 +80,7 @@ namespace YARG.Audio.BASS
         {
             fPitchShift = pitch;
             fSemitones = semitones;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR)
             lFFTsize = fftSize;
             lOsamp = oversample;
 #else
