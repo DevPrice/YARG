@@ -1,0 +1,69 @@
+﻿<linker>
+  <!--
+    Code that is only reached through reflection, which IL2CPP managed code stripping cannot see.
+    Mono players are not stripped, so this changes nothing there. Unity merges this file with
+    AddressableAssetsData/link.xml, package link.xml files, and the Input System's generated one.
+  -->
+
+  <!--
+    The shared data model. Newtonsoft (de)serializes profiles, every preset type (also inside replays),
+    and SongEntry with all of its subclasses (currentSong.json), and PresetSubTab reflects over preset
+    fields and their attributes. Those type graphs span most of the assembly's namespaces, and a stripped
+    setter or constructor silently drops saved data instead of failing, so the whole assembly is kept.
+  -->
+  <assembly fullname="YARG.Core.Package" preserve="all" />
+
+  <!-- MIDI chart parsing constructs events reflectively (Activator.CreateInstance). -->
+  <assembly fullname="Melanchall.DryWetMidi" preserve="all" />
+
+  <assembly fullname="Assembly-CSharp">
+    <!-- SettingsManager: GetProperties/GetProperty/GetMethod by name, plus Newtonsoft. -->
+    <type fullname="YARG.Settings.SettingsManager/SettingContainer" preserve="all" />
+    <type fullname="YARG.Settings.SettingsManager/StartupSettingValues" preserve="all" />
+    <!-- Setting values (AbstractSettingConverter is created from a [JsonConverter] attribute). -->
+    <namespace fullname="YARG.Settings.Types" preserve="all" />
+
+    <!-- Other Newtonsoft (de)serialized types. -->
+    <type fullname="YARG.Settings.VenueAutoGenerationPreset" preserve="all" />
+    <type fullname="YARG.Themes.ThemePreset" preserve="all" />
+    <namespace fullname="YARG.Input.Serialization" preserve="all" />
+    <type fullname="YARG.Playlists.Playlist" preserve="all" />
+    <type fullname="YARG.Player.PlayerContainer/UnloadedProfile" preserve="all" />
+    <type fullname="YARG.Song.SongSources/SourceIndex" preserve="all" />
+    <type fullname="YARG.Song.SongSources/Source" preserve="all" />
+    <type fullname="YARG.Song.Genrelizer/GenreMappingData" preserve="all" />
+    <type fullname="YARG.Song.Genrelizer/SubgenreMappingData" preserve="all" />
+    <type fullname="YARG.Song.Exporters.WebBrowserRecord" preserve="all" />
+    <type fullname="YARG.Song.Exporters.OuvertExport/OuvertSongData" preserve="all" />
+    <type fullname="YARG.Menu.Credits.CreditsMenu/Contributor" preserve="all" />
+
+    <!-- sqlite-net maps rows onto these through reflection. -->
+    <type fullname="YARG.Scores.GameRecord" preserve="all" />
+    <type fullname="YARG.Scores.PlayerScoreRecord" preserve="all" />
+    <type fullname="YARG.Scores.PlayerScoreWithChecksum" preserve="all" />
+    <type fullname="YARG.Scores.PlayerInfoRecord" preserve="all" />
+    <type fullname="YARG.Scores.PlayCountRecord" preserve="all" />
+  </assembly>
+
+  <assembly fullname="UnityEngine.CoreModule">
+    <!-- YARG.Logging.Unity.UnityInternalLogWrapper, which falls back to the public Debug API without these. -->
+    <type fullname="UnityEngine.DebugLogHandler">
+      <method name=".ctor" />
+      <method name="Internal_Log" />
+      <method name="Internal_LogException" />
+    </type>
+    <type fullname="UnityEngine.StackTraceUtility">
+      <method name="ExtractFormattedStackTrace" />
+    </type>
+    <type fullname="UnityEngine.Debug">
+      <field name="s_Logger" />
+    </type>
+    <type fullname="UnityEngine.Logger">
+      <method name=".ctor" />
+    </type>
+
+    <!-- SettingContainer.Resolution is a Resolution? that Newtonsoft writes and reads property by property. -->
+    <type fullname="UnityEngine.Resolution" preserve="all" />
+    <type fullname="UnityEngine.RefreshRate" preserve="all" />
+  </assembly>
+</linker>
