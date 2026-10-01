@@ -71,12 +71,6 @@ namespace YARG.Editor.Xbox
 
         private static void ApplySettings()
         {
-            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WSAPlayer &&
-                !EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.WSA, BuildTarget.WSAPlayer))
-            {
-                throw new Exception("SwitchActiveBuildTarget(WSAPlayer) failed; is UWP Build Support installed?");
-            }
-
             var wsa = NamedBuildTarget.WindowsStoreApps;
             PlayerSettings.productName = PRODUCT_NAME;
             PlayerSettings.SetScriptingBackend(wsa, ScriptingImplementation.IL2CPP);
@@ -109,6 +103,14 @@ namespace YARG.Editor.Xbox
 
             EditorUserBuildSettings.wsaUWPBuildType = WSAUWPBuildType.D3D;
             SetWsaArchitectureX64();
+
+            // Switching recompiles scripts for WSA, so the defines above must already be in place: without
+            // ZSTRING_TEXTMESHPRO_SUPPORT the WSA compile fails and the editor can't run Build().
+            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WSAPlayer &&
+                !EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.WSA, BuildTarget.WSAPlayer))
+            {
+                throw new Exception("SwitchActiveBuildTarget(WSAPlayer) failed; is UWP Build Support installed?");
+            }
 
             AssetDatabase.SaveAssets();
             Debug.Log($"[XboxBuild] Configured {PACKAGE_NAME} {PlayerSettings.WSA.packageVersion}, defines=" +
