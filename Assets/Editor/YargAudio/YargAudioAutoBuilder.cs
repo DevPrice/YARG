@@ -45,7 +45,7 @@ namespace YARG.Editor.YargAudio
 
         public void OnPreprocessBuild(BuildReport report)
         {
-            if (!EnsureUpToDate(isExplicit: false))
+            if (!EnsureUpToDate(report.summary.platform, isExplicit: false))
             {
                 throw new BuildFailedException("[YargAudio Builder] Native audio build failed. See console for details.");
             }
@@ -117,7 +117,10 @@ namespace YARG.Editor.YargAudio
             return true;
         }
 
-        public static bool EnsureUpToDate(bool isExplicit = false)
+        public static bool EnsureUpToDate(bool isExplicit = false) =>
+            EnsureUpToDate(buildTarget: null, isExplicit);
+
+        private static bool EnsureUpToDate(BuildTarget? buildTarget, bool isExplicit)
         {
             if (!isExplicit && !EditorPrefs.GetBool(AUTO_REBUILD_KEY, false))
             {
@@ -131,7 +134,9 @@ namespace YARG.Editor.YargAudio
                 return true;
             }
 
-            var pluginInfo = GetPlatformPluginInfo(projectRoot);
+            var pluginInfo = buildTarget == BuildTarget.WSAPlayer
+                ? GetWindowsStorePluginInfo(projectRoot)
+                : GetPlatformPluginInfo(projectRoot);
             if (pluginInfo == null)
             {
                 return true;
@@ -380,6 +385,24 @@ namespace YARG.Editor.YargAudio
                 ),
                 _ => null
             };
+
+        // Opt-in: the WSA plugin is only built once its import settings (.meta) exist, so an
+        // unconfigured DLL never lands in Assets with Unity's default any-platform settings.
+        private static PluginInfo? GetWindowsStorePluginInfo(string projectRoot)
+        {
+            if (Application.platform != RuntimePlatform.WindowsEditor)
+            {
+                return null;
+            }
+
+            var pluginInfo = new PluginInfo(
+                configurePreset: "windows-store-x64",
+                buildPreset: "windows-store-x64-release",
+                binaryName: "yarg_audio.dll",
+                destinationDirectory: Path.Combine(projectRoot, "Assets", "Plugins", "YargAudio", "WSA", "x64")
+            );
+            return File.Exists(pluginInfo.DestinationBinaryPath + ".meta") ? pluginInfo : null;
+        }
 
         private static bool HasNewerSourcesThan(string nativeDir, string destinationBinaryPath)
         {
