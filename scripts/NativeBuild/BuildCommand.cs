@@ -5,6 +5,7 @@ internal enum NativePlatform
     Windows,
     Linux,
     MacOS,
+    WindowsStore,
 }
 
 internal sealed record NativePlugin(
@@ -18,6 +19,9 @@ internal sealed record NativePlugin(
     string BuiltDirectory,
     string ArtifactName)
 {
+    public bool IsMultiConfig =>
+        Platform is NativePlatform.Windows or NativePlatform.WindowsStore;
+
     public string PluginBinaryPath(RepositoryLayout repository) =>
         Path.Combine(repository.Root, PluginDirectory, BinaryName);
 
@@ -32,7 +36,7 @@ internal sealed record NativePlugin(
         Path.Combine(
             repository.NativeDirectory,
             BuiltDirectory,
-            Platform == NativePlatform.Windows ? configuration : string.Empty,
+            IsMultiConfig ? configuration : string.Empty,
             BinaryName);
 }
 
@@ -72,6 +76,33 @@ internal static class NativePlugins
             "yarg-audio-macos-universal"),
     ];
 
+    // Kept out of All: there is no committed Windows Store plugin to package or verify.
+    public static NativePlugin WindowsStore { get; } = new(
+        NativePlatform.WindowsStore,
+        "WindowsStore",
+        "windows-store-x64",
+        "windows-store-x64-release",
+        string.Empty,
+        "yarg_audio.dll",
+        "Assets/Plugins/YargAudio/WSA/x64",
+        "build/windows-store-x64",
+        "yarg-audio-windows-store-x64");
+
+    public static NativePlugin ForTarget(NativeTarget target)
+    {
+        if (target == NativeTarget.Host)
+        {
+            return ForCurrentHost();
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new ToolException("The windows-store target can only be built on Windows.");
+        }
+
+        return WindowsStore;
+    }
+
     public static NativePlugin ForCurrentHost()
     {
         NativePlatform platform =
@@ -94,12 +125,17 @@ internal static class BuildCommand
         RepositoryLayout repository,
         BuildOptions options)
     {
-        NativePlugin plugin = NativePlugins.ForCurrentHost();
-        if (plugin.Platform != NativePlatform.Windows &&
+        NativePlugin plugin = NativePlugins.ForTarget(options.Target);
+        if (!plugin.IsMultiConfig &&
             options.Configuration != "Release")
         {
             throw new ToolException(
                 $"{plugin.Platform} build currently supports Release configuration only.");
+        }
+
+        if (plugin.Platform == NativePlatform.WindowsStore)
+        {
+            return await BuildWindowsStoreAsync(repository, plugin, options);
         }
 
         string native = repository.NativeDirectory;
@@ -168,6 +204,68 @@ internal static class BuildCommand
         {
             string destination = Path.GetDirectoryName(plugin.PluginBinaryPath(repository))!;
             CopyPlugin(repository, plugin, builtBinary, destination);
+        }
+
+        Console.WriteLine("Native build completed.");
+        return 0;
+    }
+
+    // Store builds link the app-container CRT (VCRUNTIME140_APP.dll), which a
+    // desktop process cannot load, so there are no unit or integration tests.
+    private static async Task<int> BuildWindowsStoreAsync(
+        RepositoryLayout repository,
+        NativePlugin plugin,
+        BuildOptions options)
+    {
+        if (options.VerifyCommittedPlugin)
+        {
+            throw new ToolException(
+                "--verify-committed-plugin is not supported for the windows-store target.");
+        }
+
+        if (options.OutputDirectory is null && !options.NoCopy)
+        {
+            throw new ToolException(
+                "The windows-store target requires --output or --no-copy.");
+        }
+
+        string native = repository.NativeDirectory;
+        Console.WriteLine($"Building {plugin.Platform} native plugin.");
+
+        await ProcessRunner.RunAsync(
+            "cmake",
+            ["--preset", plugin.ConfigurePreset],
+            native);
+        await ProcessRunner.RunAsync(
+            "cmake",
+            [
+                "--build",
+                "--preset",
+                plugin.BuildPreset,
+                "--parallel",
+                "--config",
+                options.Configuration,
+            ],
+            native);
+
+        string builtBinary = plugin.BuiltBinaryPath(
+            repository, options.Configuration);
+        RequireFile(builtBinary, "Native build output");
+
+        if (options.OutputDirectory is not null)
+        {
+            string destination = Path.GetFullPath(options.OutputDirectory, repository.Root);
+            Directory.CreateDirectory(destination);
+            File.Copy(builtBinary, Path.Combine(destination, plugin.BinaryName), overwrite: true);
+
+            string builtSymbols = Path.ChangeExtension(builtBinary, ".pdb");
+            if (File.Exists(builtSymbols))
+            {
+                File.Copy(builtSymbols, Path.Combine(destination, Path.GetFileName(builtSymbols)),
+                    overwrite: true);
+            }
+
+            Console.WriteLine($"Copied {plugin.BinaryName} to {destination}");
         }
 
         Console.WriteLine("Native build completed.");
