@@ -128,12 +128,10 @@ namespace YARG.Song
             "base", "extra"
         };
 
-        private static readonly string[] SourceRoots =
-        {
-            CustomSourcesFolder, // Prioritize user-supplied sources
-            Path.Combine(SourcesFolder, SOURCE_REPO_FOLDER, "base", "icons"),
-            Path.Combine(SourcesFolder, SOURCE_REPO_FOLDER, "extra", "icons"),
-        };
+        private static readonly SeededDownloadFolder _sourcesFolder = new(SourcesFolder,
+            Path.Combine(PathHelper.PersistentDataPath, "sources"), SOURCE_REPO_FOLDER);
+
+        private static string[] SourceRoots = Array.Empty<string>();
 
         private const string SOURCE_COMMIT_URL =
             "https://api.github.com/repos/YARC-Official/OpenSource/commits?per_page=1";
@@ -173,21 +171,8 @@ namespace YARG.Song
 
         private static async UniTask DownloadSources()
         {
-            // Create the sources folder if it doesn't exist
-            Directory.CreateDirectory(SourcesFolder);
-
             // Look for the current version
-            string sourceVersionPath = Path.Combine(SourcesFolder, "version.txt");
-            string currentVersion = null;
-            try
-            {
-                if (File.Exists(sourceVersionPath))
-                    currentVersion = await File.ReadAllTextAsync(sourceVersionPath);
-            }
-            catch (Exception e)
-            {
-                YargLogger.LogException(e, "Failed to get current song source version.");
-            }
+            string currentVersion = await _sourcesFolder.ReadActiveVersionAsync();
 
             // Look for new version
             string newestVersion = null;
@@ -220,8 +205,12 @@ namespace YARG.Song
             }
 
             // If up to date, finish
-            var repoDir = Path.Combine(SourcesFolder, SOURCE_REPO_FOLDER);
-            if (newestVersion == currentVersion && Directory.Exists(repoDir))
+            if (newestVersion == currentVersion)
+            {
+                return;
+            }
+
+            if (!_sourcesFolder.TryCreateDownloadFolder())
             {
                 return;
             }
@@ -229,8 +218,11 @@ namespace YARG.Song
             // Otherwise, update!
             try
             {
+                var downloadFolder = _sourcesFolder.DownloadFolder;
+                var repoDir = _sourcesFolder.DownloadRepoDirectory;
+
                 // Download
-                string zipPath = Path.Combine(SourcesFolder, "update.zip");
+                string zipPath = Path.Combine(downloadFolder, "update.zip");
                 using (var request = UnityWebRequest.Get(SOURCE_ZIP_URL))
                 {
                     await request.SendWebRequest();
@@ -245,13 +237,14 @@ namespace YARG.Song
                 }
 
                 // Delete the old folder
+                File.Delete(_sourcesFolder.DownloadVersionPath);
                 if (Directory.Exists(repoDir))
                 {
                     Directory.Delete(repoDir, true);
                 }
 
                 // Extract the base and extras folder
-                ZipFile.ExtractToDirectory(zipPath, SourcesFolder);
+                ZipFile.ExtractToDirectory(zipPath, downloadFolder);
 
                 // Delete the random folders
                 var ignoreFolder = Path.Combine(repoDir, "ignore");
@@ -273,7 +266,7 @@ namespace YARG.Song
                 }
 
                 // Create the version txt
-                await File.WriteAllTextAsync(Path.Combine(SourcesFolder, "version.txt"), newestVersion);
+                await File.WriteAllTextAsync(_sourcesFolder.DownloadVersionPath, newestVersion);
 
                 // Delete the zip
                 File.Delete(zipPath);
@@ -286,6 +279,14 @@ namespace YARG.Song
 
         private static void ReadSources()
         {
+            var repoDir = _sourcesFolder.ActiveRepoDirectory;
+            SourceRoots = new[]
+            {
+                CustomSourcesFolder, // Prioritize user-supplied sources
+                Path.Combine(repoDir, "base", "icons"),
+                Path.Combine(repoDir, "extra", "icons"),
+            };
+
             // Read custom sources - they are read first so user replacements are prioritized
             // Create the folder if it doesn't exist
             Directory.CreateDirectory(CustomSourcesFolder);
@@ -303,7 +304,7 @@ namespace YARG.Song
             {
                 try
                 {
-                    var indexPath = Path.Combine(SourcesFolder, SOURCE_REPO_FOLDER, index, "index.json");
+                    var indexPath = Path.Combine(repoDir, index, "index.json");
                     ReadIndexPath(indexPath);
                 }
                 catch (Exception e)
