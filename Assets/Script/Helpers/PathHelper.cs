@@ -132,6 +132,8 @@ namespace YARG.Helpers
             SongCachePath = Path.Combine(PersistentDataPath, "songcache.bin");
             BadSongsPath = Path.Combine(PersistentDataPath, "badsongs.txt");
 
+            // The YARC Launcher is desktop-only, and a UWP app can't read its settings outside the package.
+#if !UNITY_WSA || UNITY_EDITOR
             // Get the launcher paths
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
             // Thanks Apple
@@ -145,6 +147,7 @@ namespace YARG.Helpers
             // Get official setlist path
             // (this is replaced by the launch argument if it is set)
             (SetlistPath, VenuePath) = FindLauncherPaths();
+#endif
         }
 
         private static (string, string) FindLauncherPaths()
