@@ -9,7 +9,7 @@
         /// <summary>
         /// Whether the fullscreen mode and resolution settings are offered.
         /// </summary>
-        public static bool SupportsWindowModes => true;
+        public static bool SupportsWindowModes => !IsWindowsStorePlayer;
 
         /// <summary>
         /// Whether <see cref="FileExplorerHelper.OpenFolder"/> and <see cref="FileExplorerHelper.OpenToFile"/>
@@ -30,23 +30,35 @@
         /// <summary>
         /// Whether Discord rich presence is available.
         /// </summary>
-        public static bool SupportsDiscord => true;
+        public static bool SupportsDiscord => !IsWindowsStorePlayer;
 
         /// <summary>
         /// Whether launch arguments such as <c>-offline</c> or <c>-persistent-data-path</c> are read.
         /// </summary>
-        public static bool SupportsCommandLineArgs => true;
+        public static bool SupportsCommandLineArgs => !IsWindowsStorePlayer;
 
         /// <summary>
         /// Whether adding an XInput device asks which kind of controller it is (gamepad, CRKD guitar,
         /// RB4InstrumentMapper, ...) before applying default bindings.
         /// </summary>
-        public static bool SupportsXInputGamepadModePrompt => IsWindowsDesktop;
+        public static bool SupportsXInputGamepadModePrompt => IsWindowsDesktop || IsWindowsStorePlayer;
+
+        /// <summary>
+        /// Whether .yarground venue bundles can be loaded. They are built for the desktop players only.
+        /// </summary>
+        public static bool SupportsYargroundBundles => !IsWindowsStorePlayer;
 
         // Unlike UNITY_STANDALONE_WIN alone, this excludes a non-Windows editor targeting Windows,
         // where the Windows-only native libraries are not loaded.
         private static bool IsWindowsDesktop =>
 #if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+            true;
+#else
+            false;
+#endif
+
+        private static bool IsWindowsStorePlayer =>
+#if UNITY_WSA && !UNITY_EDITOR
             true;
 #else
             false;

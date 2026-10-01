@@ -13,6 +13,11 @@ namespace YARG.Helpers
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Initialize()
         {
+            if (!PlatformFeatures.SupportsWindowModes)
+            {
+                return;
+            }
+
             UnityEngine.InputSystem.InputSystem.onBeforeUpdate += () =>
             {
                 if (SettingsManager.Settings == null)
@@ -72,6 +77,11 @@ namespace YARG.Helpers
         /// </summary>
         public static void SetResolution(Resolution resolution)
         {
+            if (!PlatformFeatures.SupportsWindowModes)
+            {
+                return;
+            }
+
             YargLogger.LogFormatDebug("Changing screen resolution to {0}", resolution);
             var fullscreenMode = SettingsManager.Settings?.FullscreenMode.Value ?? FullScreenMode.FullScreenWindow;
             Screen.SetResolution(resolution.width, resolution.height, fullscreenMode, resolution.refreshRateRatio);
