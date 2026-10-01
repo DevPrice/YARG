@@ -9,6 +9,7 @@ using UnityEngine.UI;
 using YARG.Core.Audio;
 using YARG.Core.Game;
 using YARG.Core.Logging;
+using YARG.Helpers;
 using YARG.Helpers.Extensions;
 using YARG.Input;
 using YARG.Localization;
@@ -271,18 +272,12 @@ namespace YARG.Menu.ProfileList
                 if (PlayerContainer.IsDeviceTaken(device)) continue;
 
                 inputDeviceCount++;
-                // Only Windows awaits the XInput mode prompt. Non-Windows omits async to prevent CS1998 warning.
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
                 dialog.AddListButton(device.displayName, async () =>
-#else
-                dialog.AddListButton(device.displayName, () =>
-#endif
                 {
                     player.Bindings.AddDevice(device);
                     if (!player.Bindings.ContainsBindingsForDevice(device))
                     {
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-                        if (device is XInputController xinput)
+                        if (PlatformFeatures.SupportsXInputGamepadModePrompt && device is XInputController xinput)
                         {
                             xinputDialogShowing = true;
                             var mode = await PromptGamepadMode(xinput);
@@ -294,7 +289,6 @@ namespace YARG.Menu.ProfileList
                             player.Bindings.SetDefaultBinds(xinput, mode.Value);
                         }
                         else
-#endif
                         {
                             player.Bindings.SetDefaultBinds(device);
                         }

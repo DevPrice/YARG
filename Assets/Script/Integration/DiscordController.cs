@@ -8,6 +8,7 @@ using Discord;
 using UnityEngine;
 using YARG.Core.Logging;
 using YARG.Core.Song;
+using YARG.Helpers;
 using YARG.Localization;
 using YARG.Settings;
 
@@ -62,7 +63,7 @@ namespace YARG.Integration
         public void CreateInstance()
         {
             // Skip if loading screen hasn't finished loading localization (localization is required for rich presence to function normally)
-            if (!_initialized)
+            if (!_initialized || !PlatformFeatures.SupportsDiscord)
             {
                 return;
             }
