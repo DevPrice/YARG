@@ -33,6 +33,10 @@ namespace YARG.Helpers
             return Path.Combine(directory, "x86_64");
 #elif UNITY_STANDALONE_WIN
             return Path.Combine(directory, "x86");
+#elif UNITY_WSA
+            // The package root, as a relative path: plugins sit there, and LoadPackagedLibrary (used by both
+            // Load and BASS_PluginLoad on UWP) rejects absolute paths.
+            return string.Empty;
 #else
             return directory;
 #endif
@@ -50,6 +54,8 @@ namespace YARG.Helpers
             return Path.Combine(GetPluginDirectory(dataPath, editorFolder), $"lib{name}.so");
 #elif UNITY_EDITOR || UNITY_STANDALONE_WIN
             return Path.Combine(GetPluginDirectory(dataPath, editorFolder), $"{name}.dll");
+#elif UNITY_WSA
+            return $"{name}.dll";
 #else
             return name;
 #endif
@@ -64,6 +70,8 @@ namespace YARG.Helpers
             return LinuxNative.dlopen(path, RTLD_NOW | RTLD_GLOBAL);
 #elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
             return MacNative.dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+#elif UNITY_WSA
+            return WsaNative.LoadPackagedLibrary(path, 0);
 #else
             return IntPtr.Zero;
 #endif
@@ -78,6 +86,8 @@ namespace YARG.Helpers
             return LinuxNative.dlsym(handle, symbol);
 #elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
             return MacNative.dlsym(handle, symbol);
+#elif UNITY_WSA
+            return WsaNative.GetProcAddress(handle, symbol);
 #else
             return IntPtr.Zero;
 #endif
@@ -109,6 +119,17 @@ namespace YARG.Helpers
 
             [DllImport("libSystem.dylib")]
             public static extern IntPtr dlsym(IntPtr handle, string symbol);
+        }
+#elif UNITY_WSA
+        // IL2CPP on UWP opens P/Invoke libraries with LoadPackagedLibrary, so name the API sets (as Unity's own
+        // baselib.dll imports them) rather than kernel32, which isn't guaranteed to resolve that way.
+        private static class WsaNative
+        {
+            [DllImport("api-ms-win-core-libraryloader-l2-1-0.dll", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
+            public static extern IntPtr LoadPackagedLibrary(string lpwLibFileName, uint Reserved);
+
+            [DllImport("api-ms-win-core-libraryloader-l1-2-0.dll", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
+            public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
         }
 #endif
     }
