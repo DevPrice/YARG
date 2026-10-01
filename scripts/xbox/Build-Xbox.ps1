@@ -59,10 +59,10 @@ $vsPath = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild M
     -property installationPath | Select-Object -First 1
 if (-not $vsPath) { throw 'No Visual Studio with the Universal Windows Platform workload found via vswhere' }
 
-function Invoke-Unity([string]$method, [string]$logName) {
+function Invoke-Unity([string]$method, [string]$logName, [string]$buildTarget) {
     $log = Join-Path $logs $logName
     $unityArgs = @(
-        '-batchmode', '-quit', '-nographics', '-buildTarget', 'WindowsStoreApps',
+        '-batchmode', '-quit', '-nographics', '-buildTarget', $buildTarget,
         '-projectPath', "`"$ProjectPath`"", '-logFile', "`"$log`"", '-executeMethod', $method,
         '-xboxOutput', "`"$unityOut`"")
     if ($PackageVersion) { $unityArgs += @('-xboxVersion', $PackageVersion) }
@@ -95,8 +95,10 @@ if (-not $SkipUnity) {
         $cmake = Get-Command cmake -ErrorAction SilentlyContinue
         if ($cmake) { Write-Host "CMake for the Unity process: $($cmake.Source) ($((& $cmake.Source --version)[0]))" }
 
-        Invoke-Unity 'YARG.Editor.Xbox.XboxBuild.Configure' 'unity-configure.log'
-        Invoke-Unity 'YARG.Editor.Xbox.XboxBuild.Build' 'unity-build.log'
+        # Configure must start on Standalone: the WSA defines don't exist until it runs, and a WSA start
+        # would fail to compile before Configure could add them.
+        Invoke-Unity 'YARG.Editor.Xbox.XboxBuild.Configure' 'unity-configure.log' 'StandaloneWindows64'
+        Invoke-Unity 'YARG.Editor.Xbox.XboxBuild.Build' 'unity-build.log' 'WindowsStoreApps'
     }
     finally {
         foreach ($name in $savedEnv.Keys) {
