@@ -40,6 +40,12 @@ namespace YARG.Settings.Metadata
                 go.GetComponent<SettingsDirectory>().SetIndex(i);
             }
 
+            for (int i = 0; i < SettingsManager.Settings.NetworkSongFolders.Count; i++)
+            {
+                var go = Object.Instantiate(_songManagerDirectory, settingContainer);
+                go.GetComponent<SettingsDirectory>().SetNetworkIndex(i);
+            }
+
             // Build the rest of the metadata
             base.BuildSettingTab(settingContainer, navGroup);
         }
