@@ -17,6 +17,7 @@ using YARG.Player;
 using YARG.Playlists;
 using YARG.Scores;
 using YARG.Settings;
+using YARG.Song.Network;
 
 namespace YARG.Song
 {
@@ -151,6 +152,14 @@ namespace YARG.Song
 #nullable disable
         {
             var directories = new List<string>(SettingsManager.Settings.SongFolders);
+            foreach (string networkFolder in SmbNetworkFolders.Register(SettingsManager.Settings.NetworkSongFolders))
+            {
+                if (!directories.Contains(networkFolder))
+                {
+                    directories.Add(networkFolder);
+                }
+            }
+
             string setlistPath = PathHelper.SetlistPath;
             if (!string.IsNullOrEmpty(setlistPath) && !directories.Contains(setlistPath))
             {
