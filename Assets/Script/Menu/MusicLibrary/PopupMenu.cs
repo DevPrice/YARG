@@ -7,6 +7,7 @@ using UnityEngine.UI;
 using YARG.Core;
 using YARG.Core.Extensions;
 using YARG.Core.Input;
+using YARG.Core.IO;
 using YARG.Core.Song;
 using YARG.Helpers;
 using YARG.Helpers.Extensions;
@@ -355,21 +356,25 @@ namespace YARG.Menu.MusicLibrary
             {
                 var song = songViewType.SongEntry;
 
-                CreateItem("ViewSongFolder", () =>
+                // The OS file explorer can't see folders that only the in-process SMB client reaches.
+                if (YARGFileSystem.Resolve(song.ActualLocation) == LocalFileSystem.Instance)
                 {
-                    switch (song.SubType)
+                    CreateItem("ViewSongFolder", () =>
                     {
-                        case EntryType.Ini:
-                        case EntryType.ExCON:
-                            FileExplorerHelper.OpenFolder(song.ActualLocation);
-                            break;
-                        case EntryType.Sng:
-                        case EntryType.CON:
-                            FileExplorerHelper.OpenToFile(song.ActualLocation);
-                            break;
-                    }
-                    gameObject.SetActive(false);
-                });
+                        switch (song.SubType)
+                        {
+                            case EntryType.Ini:
+                            case EntryType.ExCON:
+                                FileExplorerHelper.OpenFolder(song.ActualLocation);
+                                break;
+                            case EntryType.Sng:
+                            case EntryType.CON:
+                                FileExplorerHelper.OpenToFile(song.ActualLocation);
+                                break;
+                        }
+                        gameObject.SetActive(false);
+                    });
+                }
 
                 CreateItem("CopySongChecksum", () =>
                 {
