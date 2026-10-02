@@ -72,6 +72,17 @@ namespace YARG.Song.Network
         }
 
         /// <summary>
+        /// Runs a song scan that reads network folders on dedicated threads rather than the thread pool, which
+        /// the SMB client needs free to complete its requests. Blocks until the scan finishes.
+        /// </summary>
+        public static T RunScan<T>(Func<T> scan)
+        {
+            int threads = Math.Max(Environment.ProcessorCount, 2 * SmbFileSystem.MAX_REQUESTS_PER_SERVER);
+            using var scheduler = new DedicatedThreadScheduler(threads, "Network song scan");
+            return scheduler.Run(scan);
+        }
+
+        /// <summary>
         /// Connects to <paramref name="folder"/> and opens it. Blocks on the network, for up to the connect
         /// timeout, so keep it off the main thread.
         /// </summary>
