@@ -1,0 +1,52 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-store-x64",
+      "displayName": "Windows Store (UWP) x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-store-x64",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "WindowsStore",
+        "CMAKE_SYSTEM_VERSION": "10.0",
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": "ProgramDatabase",
+        "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/INCREMENTAL:NO /DEBUG /OPT:REF /OPT:ICF"
+      }
+    },
+    {
+      "name": "windows-x64-tests",
+      "displayName": "Windows x64 core tests",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-x64-tests"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-store-x64-release",
+      "configurePreset": "windows-store-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-x64-tests-release",
+      "configurePreset": "windows-x64-tests",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-x64-tests-release",
+      "configurePreset": "windows-x64-tests",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
