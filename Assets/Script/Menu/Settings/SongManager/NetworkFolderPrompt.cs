@@ -49,12 +49,16 @@ namespace YARG.Menu.Settings
             // The rename dialog is still showing while it runs this callback, and only one dialog may exist.
             await UniTask.NextFrame();
 
-            string folder = input.Trim().TrimEnd('\\', '/');
-            if (!SmbPath.TryParse(folder, out _))
+            if (!SmbPath.TryParse(input.Trim(), out var path))
             {
                 ShowFailure(Localize.KeyFormat((DIALOG_KEY, "InvalidPath"), input.Trim()));
                 return;
             }
+
+            // Store the canonical spelling: TryParse accepts extra separators (the dialog is prefilled with \\,
+            // so typing a full path gives \\\\server\share), but the scanner and the SMB mount compare root
+            // strings, and a non-canonical root falls through to the OS file system and fails.
+            string folder = path.ToString();
 
             int existing = NetworkFolders.FindIndex(other =>
                 string.Equals(other.TrimEnd('\\', '/'), folder, StringComparison.OrdinalIgnoreCase));
