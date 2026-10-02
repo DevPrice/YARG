@@ -309,6 +309,12 @@ namespace YARG.Input
 
         private static void OnDeviceChange(InputDevice device, InputDeviceChange change)
         {
+            // GamepadCursor adds and removes this device every time it is shown or hidden
+            if (device.layout == "VirtualMouse")
+            {
+                return;
+            }
+
             switch (change)
             {
                 case InputDeviceChange.Added:

@@ -92,6 +92,7 @@ namespace YARG.Settings
                 nameof(Settings.PauseOnMenuOpen),
                 nameof(Settings.MuteOnFocusLoss),
                 nameof(Settings.WrapAroundNavigation),
+                nameof(Settings.GamepadCursor),
                 nameof(Settings.DiscordRichPresence),
                 nameof(Settings.AmIAwesome),
             },
