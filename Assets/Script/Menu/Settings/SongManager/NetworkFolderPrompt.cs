@@ -100,6 +100,10 @@ namespace YARG.Menu.Settings
             {
                 NetworkFolders.Add(folder);
             }
+
+            // Save now rather than when the settings menu closes: a first scan of a large share can run long
+            // enough for the app to be closed mid-scan, which would otherwise lose the folder.
+            SettingsManager.SaveSettings();
             ToastManager.ToastSuccess(Localize.KeyFormat((DIALOG_KEY, "Connected"), folder));
 
             using (var context = new LoadingContext())
