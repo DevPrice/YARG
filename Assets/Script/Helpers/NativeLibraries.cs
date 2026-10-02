@@ -121,14 +121,15 @@ namespace YARG.Helpers
             public static extern IntPtr dlsym(IntPtr handle, string symbol);
         }
 #elif UNITY_WSA
-        // IL2CPP on UWP opens P/Invoke libraries with LoadPackagedLibrary, so name the API sets (as Unity's own
-        // baselib.dll imports them) rather than kernel32, which isn't guaranteed to resolve that way.
+        // IL2CPP on UWP opens P/Invoke libraries with LoadPackagedLibrary, which only finds files in the package:
+        // naming kernel32 or an API set throws DllNotFoundException on Xbox. __Internal makes IL2CPP call the
+        // functions directly, resolved at link time through WindowsApp.lib.
         private static class WsaNative
         {
-            [DllImport("api-ms-win-core-libraryloader-l2-1-0.dll", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
+            [DllImport("__Internal", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
             public static extern IntPtr LoadPackagedLibrary(string lpwLibFileName, uint Reserved);
 
-            [DllImport("api-ms-win-core-libraryloader-l1-2-0.dll", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
+            [DllImport("__Internal", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
             public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
         }
 #endif
