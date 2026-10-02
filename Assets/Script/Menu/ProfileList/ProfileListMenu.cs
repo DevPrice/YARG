@@ -1,8 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using Cysharp.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 using YARG.Core;
 using YARG.Core.Audio;
 using YARG.Core.Game;
@@ -43,16 +46,43 @@ namespace YARG.Menu.ProfileList
 
         public bool CanConnectProfile => PlayerContainer.Players.Count < _maxConnected;
 
+        private ScrollRect _listScrollRect;
+
+        // The list's help bar actions depend on the selected row, so its scheme is rebuilt when that changes
+        private bool _listSchemePushed;
+        private bool _listSchemeDirty;
+        private bool _highwayConfigurationOpen;
+
+        private void Awake()
+        {
+            _listScrollRect = _navigationGroup.GetComponent<ScrollRect>();
+        }
+
         private void OnEnable()
         {
-            RefreshList();
+            // Keep the profile that was selected before opening a sub-menu such as Edit Profile
+            RefreshList(GetSelectedProfile());
 
-            _ = Navigator.Instance.PushScheme(new NavigationScheme(new()
-            {
-                new NavigationScheme.Entry(MenuAction.Red, "Menu.Common.Back", () => MenuManager.Instance.PopMenu(), hide: true),
-            }, true));
+            _navigationGroup.SelectionChanged += OnListSelectionChanged;
+
+            PushListScheme().Forget();
 
             PlayerContainer.PlayerAdded += OnPlayerAdded;
+        }
+
+        private async UniTaskVoid PushListScheme()
+        {
+            // Like Navigator.PushScheme, let an open dialog close first so this lands above its scheme.
+            // Without a dialog this completes synchronously.
+            await DialogManager.Instance.WaitUntilCurrentClosed();
+            if (!isActiveAndEnabled || _listSchemePushed)
+            {
+                return;
+            }
+
+            Navigator.Instance.PushSchemeImmediate(BuildListScheme());
+            _listSchemePushed = true;
+            _listSchemeDirty = false;
         }
 
         private void OnDisable()
@@ -64,13 +94,115 @@ namespace YARG.Menu.ProfileList
             // Persistent singletons may already be destroyed when Unity exits play mode.
             StatsManager.Instance?.UpdateActivePlayers();
 
-            Navigator.Instance?.PopScheme();
+            // The sidebar's scheme sits on top of the list's
+            _profileSidebar.ExitNavigation();
+            if (_listSchemePushed)
+            {
+                _listSchemePushed = false;
+                Navigator.Instance?.PopScheme();
+            }
 
+            _navigationGroup.SelectionChanged -= OnListSelectionChanged;
             PlayerContainer.PlayerAdded -= OnPlayerAdded;
+        }
+
+        private void Update()
+        {
+            if (_listSchemeDirty && IsListSchemeCurrent())
+            {
+                _listSchemeDirty = false;
+
+                Navigator.Instance.PopScheme();
+                Navigator.Instance.PushSchemeImmediate(BuildListScheme());
+            }
+        }
+
+        /// <summary>
+        /// Whether the list's scheme is the top of the navigator's stack, so it can be swapped out.
+        /// </summary>
+        private bool IsListSchemeCurrent()
+        {
+            return _listSchemePushed && !_profileSidebar.IsNavigating && !_profileSidebar.IsDropdownListOpen &&
+                !_highwayConfigurationOpen && !DialogManager.Instance.IsDialogShowing;
+        }
+
+        private NavigationScheme BuildListScheme()
+        {
+            var entries = new List<NavigationScheme.Entry>
+            {
+                new(MenuAction.Red, "Menu.Common.Back", () => MenuManager.Instance.PopMenu(), hide: true),
+                new(MenuAction.Up, "Menu.Common.Up", ctx => _navigationGroup.SelectPrevious(ctx.IsRepeat)),
+                new(MenuAction.Down, "Menu.Common.Down", ctx => _navigationGroup.SelectNext(ctx.IsRepeat)),
+            };
+
+            var view = _navigationGroup.SelectedBehaviour as ProfileView;
+            if (view != null)
+            {
+                AddSelectedProfileEntries(entries, view);
+            }
+
+            entries.Add(new(MenuAction.Blue, "Menu.ProfileList.AddProfile", () => AddProfileAndSelect(false)));
+            entries.Add(new(MenuAction.Orange, "Menu.ProfileList.AddBot", () => AddProfileAndSelect(true)));
+
+            return new NavigationScheme(entries, true);
+        }
+
+        private void AddSelectedProfileEntries(List<NavigationScheme.Entry> entries, ProfileView view)
+        {
+            // The view is destroyed whenever the list is rebuilt, which can happen before this scheme is replaced
+            void OnView(Action<ProfileView> action)
+            {
+                if (view != null)
+                {
+                    action(view);
+                }
+            }
+
+            if (view.UnloadedRecord is not null)
+            {
+                entries.Add(new(MenuAction.Yellow, "Menu.Common.Delete", () => OnView(v => v.RemoveProfile())));
+                return;
+            }
+
+            if (!PlayerContainer.IsProfileTaken(view.Profile))
+            {
+                entries.Add(new(MenuAction.Green, "Menu.ProfileList.Connect",
+                    () => OnView(v => v.ConnectButtonAction())));
+                entries.Add(new(MenuAction.Yellow, "Menu.Common.Delete", () => OnView(v => v.RemoveProfile())));
+                return;
+            }
+
+            entries.Add(new(MenuAction.Green, "Menu.ProfileList.Settings", _profileSidebar.EnterNavigation));
+            entries.Add(new(MenuAction.Yellow, "Menu.ProfileList.Disconnect", () => OnView(v =>
+            {
+                var profile = v.Profile;
+                v.Disconnect();
+                SetSelectedProfile(profile);
+            })));
+
+            if (PlayerContainer.Players.Count > 1)
+            {
+                entries.Add(new(MenuAction.Left, "Menu.ProfileList.MoveProfile",
+                    () => OnView(v => MoveProfileUp(v.Profile))));
+                entries.Add(new(MenuAction.Right, "Menu.ProfileList.MoveProfile",
+                    () => OnView(v => MoveProfileDown(v.Profile))));
+            }
+        }
+
+        private void OnListSelectionChanged(NavigatableBehaviour selected, SelectionOrigin selectionOrigin)
+        {
+            _listSchemeDirty = true;
+
+            if (selectionOrigin == SelectionOrigin.Navigation && selected != null && _listScrollRect != null)
+            {
+                _listScrollRect.ScrollIntoView((RectTransform) selected.transform);
+            }
         }
 
         public void RefreshList(YargProfile selectedProfile = null)
         {
+            _listSchemeDirty = true;
+
             // Deselect
             _profileSidebar.HideContents();
 
@@ -156,29 +288,40 @@ namespace YARG.Menu.ProfileList
 
         public void AddProfile()
         {
-            PlayerContainer.AddProfile(new YargProfile
-            {
-                Name = GetUniqueProfileName("New Profile"),
-                NoteSpeed = 5,
-                HighwayLength = 1,
-                GameMode = GameMode.FiveFretGuitar
-            });
-
+            CreateProfile(false);
             RefreshList();
         }
 
         public void AddBotProfile()
         {
-            PlayerContainer.AddProfile(new YargProfile
+            CreateProfile(true);
+            RefreshList();
+        }
+
+        // Selects the new row too, so a controller player doesn't have to find it in the list
+        private void AddProfileAndSelect(bool isBot)
+        {
+            RefreshList(CreateProfile(isBot));
+
+            if (_navigationGroup.SelectedBehaviour != null && _listScrollRect != null)
             {
-                Name = GetUniqueProfileName("Bot"),
+                _listScrollRect.ScrollIntoView((RectTransform) _navigationGroup.SelectedBehaviour.transform);
+            }
+        }
+
+        private static YargProfile CreateProfile(bool isBot)
+        {
+            var profile = new YargProfile
+            {
+                Name = GetUniqueProfileName(isBot ? "Bot" : "New Profile"),
                 NoteSpeed = 5,
                 HighwayLength = 1,
                 GameMode = GameMode.FiveFretGuitar,
-                IsBot = true
-            });
+                IsBot = isBot
+            };
 
-            RefreshList();
+            PlayerContainer.AddProfile(profile);
+            return profile;
         }
 
         public void MoveProfileUp(YargProfile profile)
@@ -248,6 +391,32 @@ namespace YARG.Menu.ProfileList
             );
 
             menu.gameObject.SetActive(true);
+
+            if (!_highwayConfigurationOpen)
+            {
+                PushHighwayConfigurationScheme(menu).Forget();
+            }
+        }
+
+        // The ordering editor is pointer-driven, but Back must still close it
+        private async UniTaskVoid PushHighwayConfigurationScheme(DrumsHighwayConfigurationMenu menu)
+        {
+            _highwayConfigurationOpen = true;
+
+            Navigator.Instance.PushSchemeImmediate(new NavigationScheme(new()
+            {
+                new NavigationScheme.Entry(MenuAction.Red, "Menu.Common.Back", CloseDrumsHighwayConfigurationMenu),
+            }, null));
+
+            bool cancelled = await UniTask.WaitUntil(() => menu == null || !menu.gameObject.activeSelf,
+                cancellationToken: this.GetCancellationTokenOnDestroy()).SuppressCancellationThrow();
+
+            _highwayConfigurationOpen = false;
+
+            if (!cancelled && Navigator.Instance != null)
+            {
+                Navigator.Instance.PopScheme();
+            }
         }
         public void CloseDrumsHighwayConfigurationMenu()
         {
