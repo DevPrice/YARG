@@ -33,6 +33,8 @@ namespace YARG.Input
             (MenuAction.Down,   "<Gamepad>/leftStick/down"),
             (MenuAction.Left,   "<Gamepad>/leftStick/left"),
             (MenuAction.Right,  "<Gamepad>/leftStick/right"),
+            (MenuAction.Search,       "<Gamepad>/rightStickPress"),
+            (MenuAction.SelectArtist, "<Gamepad>/rightShoulder"),
         };
 
         private readonly InputAction[] _inputActions = new InputAction[DefaultBindings.Length];
