@@ -182,6 +182,13 @@ namespace YARG.Menu.Navigation
 
         private void Update()
         {
+            // Text-input schemes handle their own way out of the field
+            if (_textInputSchemeCount <= 0 && !IsBlockedIgnoringTextInput() &&
+                GetFocusedTextInput() is { } textInput)
+            {
+                GamepadTextEntry.HandleFocusedField(textInput);
+            }
+
             if (ShouldBlockInputs())
             {
                 ClearTrackedInputs();
@@ -435,15 +442,25 @@ namespace YARG.Menu.Navigation
 
         private bool ShouldBlockInputs()
         {
-            bool blockedByTextInput = IsTextInputFocused() && _textInputSchemeCount <= 0;
-            return DisableMenuInputs || _inputBlockState.IsBlocked || LoadingScreen.IsActive || blockedByTextInput;
+            bool blockedByTextInput = GetFocusedTextInput() != null && _textInputSchemeCount <= 0;
+            return IsBlockedIgnoringTextInput() || blockedByTextInput;
         }
 
-        private static bool IsTextInputFocused()
+        private bool IsBlockedIgnoringTextInput()
+        {
+            return DisableMenuInputs || _inputBlockState.IsBlocked || LoadingScreen.IsActive;
+        }
+
+        private static TMP_InputField GetFocusedTextInput()
         {
             var selectedGameObject = EventSystem.current?.currentSelectedGameObject;
-            return selectedGameObject != null &&
-                selectedGameObject.GetComponentInParent<TMP_InputField>()?.isFocused == true;
+            if (selectedGameObject == null)
+            {
+                return null;
+            }
+
+            var inputField = selectedGameObject.GetComponentInParent<TMP_InputField>();
+            return inputField != null && inputField.isFocused ? inputField : null;
         }
     }
 }

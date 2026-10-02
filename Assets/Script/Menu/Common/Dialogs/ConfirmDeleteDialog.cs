@@ -2,6 +2,7 @@
 using TMPro;
 using UnityEngine;
 using YARG.Localization;
+using YARG.Menu.Navigation;
 using YARG.Menu.Persistent;
 
 namespace YARG.Menu.Dialogs
@@ -16,6 +17,11 @@ namespace YARG.Menu.Dialogs
         public Action DeleteAction;
 
         private string _confirmText;
+
+        protected override NavigationScheme GetNavigationScheme()
+        {
+            return GamepadTextEntry.WithEditEntry(base.GetNavigationScheme(), _inputField);
+        }
 
         public void InitializeWithConfirmText(string confirmText, string additionalMessageText)
         {
