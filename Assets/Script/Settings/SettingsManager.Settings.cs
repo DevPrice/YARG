@@ -260,6 +260,14 @@ namespace YARG.Settings
 
             public ToggleSetting WrapAroundNavigation { get; } = new(true);
 
+            public ToggleSetting GamepadCursor { get; } = new(
+#if UNITY_WSA && !UNITY_EDITOR
+                true,
+#else
+                false,
+#endif
+                GamepadCursorCallback);
+
             public DropdownSetting<DiscordRichPresenceMode> DiscordRichPresence { get; }
                 = new(DiscordRichPresenceMode.Show, DiscordRichPresenceCallback)
                 {
@@ -1170,6 +1178,11 @@ namespace YARG.Settings
                     YargLogger.LogFormatInfo("Description for device {0}:\n{1}\n", device.displayName,
                         item2: device.description.ToJson());
                 }
+            }
+
+            private static void GamepadCursorCallback(bool value)
+            {
+                YARG.Input.GamepadCursor.SetAvailable(value);
             }
 
             private static void OutputDeviceCallback(string name)
