@@ -185,11 +185,13 @@ namespace YARG.Song
                     }
                 }
 
-                refreshedSongCache = CacheHandler.RunScan(scanQuick,
+                SongCache Scan() => CacheHandler.RunScan(scanQuick,
                     PathHelper.SongCachePath,
                     PathHelper.BadSongsPath,
                     SettingsManager.Settings.UseFullDirectoryForPlaylists.Value,
                     directories);
+
+                refreshedSongCache = networkFolders.Count > 0 ? SmbNetworkFolders.RunScan(Scan) : Scan();
             });
 
             while (task.Status == UniTaskStatus.Pending)
