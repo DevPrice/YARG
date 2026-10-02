@@ -176,10 +176,14 @@ namespace YARG.Input
 
             if (InputUpdateTime < _latestInputTime)
             {
+#if UNITY_WSA && !UNITY_EDITOR
+                Platform.Xbox.XboxInputClockWarnings.ReportFutureUpdate(InputUpdateTime, _latestInputTime);
+#else
                 YargLogger.LogFormatError(
                     "The last input event for this update is in the future! After-update time: {0}, last input time: {1}",
                     InputUpdateTime, _latestInputTime
                 );
+#endif
             }
 
             // Update bindings using the input update time
@@ -229,9 +233,13 @@ namespace YARG.Input
             // Rare edge-case, but the input system very much allows this
             if (eventPtr.time > currentTime)
             {
+#if UNITY_WSA && !UNITY_EDITOR
+                Platform.Xbox.XboxInputClockWarnings.ReportFutureEvent(currentTime, eventPtr.time, device);
+#else
                 YargLogger.LogFormatError(
                     "An input event is in the future!\nCurrent time: {0}, event time: {1}, device: {2}",
                     currentTime, eventPtr.time, device);
+#endif
             }
 
             // Keep track of the latest input event
