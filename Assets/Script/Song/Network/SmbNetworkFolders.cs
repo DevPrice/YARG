@@ -33,13 +33,15 @@ namespace YARG.Song.Network
                         continue;
                     }
 
-                    if (!SmbPath.TryParse(folder, out _))
+                    if (!SmbPath.TryParse(folder, out var path))
                     {
                         YargLogger.LogFormatWarning("Ignoring network song folder '{0}': expected \\\\server\\share\\path", folder);
                         continue;
                     }
 
-                    string root = folder.TrimEnd('\\', '/');
+                    // Canonical spelling, so a saved "\\\\server\share" or "//server/share" still matches what the
+                    // scanner walks; a mismatched root falls through to the OS file system and fails.
+                    string root = path.ToString();
                     if (roots.Add(root))
                     {
                         valid.Add(root);
