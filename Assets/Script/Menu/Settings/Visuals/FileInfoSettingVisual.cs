@@ -2,6 +2,7 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using YARG.Core.Input;
 using YARG.Helpers;
 using YARG.Localization;
 using YARG.Menu.Navigation;
@@ -17,7 +18,15 @@ namespace YARG.Menu.Settings.Visuals
         [SerializeField]
         private Image _removeButton;
 
-        public override NavigationScheme GetNavigationScheme() => NavigationScheme.Empty;
+        public override NavigationScheme GetNavigationScheme()
+        {
+            return new NavigationScheme(new()
+            {
+                NavigateFinish,
+                new NavigationScheme.Entry(MenuAction.Green, "Menu.Common.Browse", Browse),
+                new NavigationScheme.Entry(MenuAction.Yellow, "Menu.Common.Remove", Remove),
+            }, true);
+        }
 
         private Color _enabledButtonColor;
         private readonly Color _disabledButtonColor = Color.gray;

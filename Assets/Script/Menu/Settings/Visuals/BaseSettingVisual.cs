@@ -191,6 +191,61 @@ namespace YARG.Menu.Settings.Visuals
         public abstract void RefreshVisual();
 
         public abstract NavigationScheme GetNavigationScheme();
+
+        /// <summary>
+        /// Called when the scheme from <see cref="GetNavigationScheme"/> is popped, by any path.
+        /// </summary>
+        public virtual void OnNavigationSchemePopped()
+        {
+        }
+
+        /// <summary>
+        /// Tracks which of a row's input fields navigation is editing, and tints that field's text
+        /// with the selection color. Call <see cref="Clear"/> when the edit ends.
+        /// </summary>
+        protected sealed class InputFieldCursor
+        {
+            private readonly TMP_InputField[] _fields;
+            private readonly Color[] _defaultColors;
+
+            public int Index { get; private set; }
+
+            public InputFieldCursor(params TMP_InputField[] fields)
+            {
+                _fields = fields;
+                _defaultColors = new Color[fields.Length];
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    _defaultColors[i] = fields[i].textComponent.color;
+                }
+
+                SetHighlighted(Index, true);
+            }
+
+            public void Move(int offset)
+            {
+                SetHighlighted(Index, false);
+                Index = Mathf.Clamp(Index + offset, 0, _fields.Length - 1);
+                SetHighlighted(Index, true);
+            }
+
+            public void Clear()
+            {
+                SetHighlighted(Index, false);
+            }
+
+            private void SetHighlighted(int index, bool highlighted)
+            {
+                if (index >= _fields.Length)
+                {
+                    return;
+                }
+
+                var color = highlighted ? RuntimeNavigatable.SelectedTextColor : _defaultColors[index];
+                color.a = _defaultColors[index].a;
+                _fields[index].textComponent.color = color;
+            }
+        }
     }
 
     public abstract class BaseSettingVisual<T> : BaseSettingVisual where T : ISettingType

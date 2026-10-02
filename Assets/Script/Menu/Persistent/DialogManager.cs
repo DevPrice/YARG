@@ -88,6 +88,7 @@ namespace YARG.Menu.Persistent
                 MenuData.Colors.ConfirmButton,
                 ClearDialog
             );
+            dialog.AddToggleNavigation();
 
             return dialog;
         }
