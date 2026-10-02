@@ -145,7 +145,7 @@ namespace YARG.Audio.BASS
 
             foreach (var device in devices)
             {
-                present.Add((device.Id, device.Info.Name));
+                present.Add((device.Id, device.Info.GetName()));
             }
 
             lock (_lock)
@@ -195,7 +195,7 @@ namespace YARG.Audio.BASS
         {
             foreach (var device in devices)
             {
-                GetChannelCount(device.Id, device.Info.Name);
+                GetChannelCount(device.Id, device.Info.GetName());
             }
         }
 
@@ -285,7 +285,7 @@ namespace YARG.Audio.BASS
             }
 #endif
 
-            if (info.Name.StartsWith("Loopback", StringComparison.OrdinalIgnoreCase))
+            if (info.GetName().StartsWith("Loopback", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -327,7 +327,7 @@ namespace YARG.Audio.BASS
         {
             foreach (var device in FindUsableDevices())
             {
-                if (device.Info.Name == name)
+                if (device.Info.GetName() == name)
                 {
                     return device.Id;
                 }
@@ -343,7 +343,8 @@ namespace YARG.Audio.BASS
 
             foreach (var device in devices)
             {
-                if (!channelCounts.TryGetValue((device.Id, device.Info.Name), out int channels))
+                string name = device.Info.GetName();
+                if (!channelCounts.TryGetValue((device.Id, name), out int channels))
                 {
                     continue;
                 }
@@ -355,7 +356,7 @@ namespace YARG.Audio.BASS
                         continue;
                     }
 
-                    available.Add(new InputDeviceInfo(device.Id, device.Info.Name, channel, channels));
+                    available.Add(new InputDeviceInfo(device.Id, name, channel, channels));
                 }
             }
 

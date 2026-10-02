@@ -43,7 +43,7 @@ namespace YARG.Audio.BASS
         {
             for (int deviceIndex = 0; Bass.GetDeviceInfo(deviceIndex, out var info); deviceIndex++)
             {
-                if (!info.IsEnabled || info.IsLoopback || info.Name != name)
+                if (!info.IsEnabled || info.IsLoopback || info.GetName() != name)
                 {
                     continue;
                 }
@@ -62,7 +62,7 @@ namespace YARG.Audio.BASS
             {
                 if (info.IsEnabled && !info.IsLoopback)
                 {
-                    devices.Add((deviceIndex, info.Name));
+                    devices.Add((deviceIndex, info.GetName()));
                 }
             }
 
