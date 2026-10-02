@@ -8,10 +8,12 @@ using UnityEngine;
 using UnityEngine.UI;
 using YARG.Core;
 using YARG.Core.Game;
+using YARG.Core.Input;
 using YARG.Helpers.Extensions;
 using YARG.Localization;
 using YARG.Menu.Data;
 using YARG.Menu.Filters;
+using YARG.Menu.Navigation;
 using YARG.Menu.Persistent;
 using YARG.Menu.ProfileInfo;
 using YARG.Player;
@@ -25,6 +27,9 @@ namespace YARG.Menu.ProfileList
     public class ProfileSidebar : MonoBehaviour
     {
         private const string NUMBER_FORMAT = "0.0###";
+
+        private const float NOTE_SPEED_STEP     = 0.5f;
+        private const float HIGHWAY_LENGTH_STEP = 0.1f;
 
         private static readonly GameMode[] _gameModes =
         {
@@ -125,6 +130,43 @@ namespace YARG.Menu.ProfileList
         private List<Guid> _highwayPresetsByIndex;
         private List<Guid> _rockmeterPresetsByIndex;
 
+        private NavigationGroup _navigationGroup;
+        private ScrollRect _settingsScrollRect;
+        private TMP_Dropdown[] _dropdowns;
+
+        private TMP_InputField _steppedField;
+        private Color _steppedFieldColor;
+        private bool _steppingField;
+
+        /// <summary>
+        /// Whether menu navigation is moving through the sidebar rather than the profile list.
+        /// </summary>
+        public bool IsNavigating { get; private set; }
+
+        /// <summary>
+        /// Whether one of the sidebar's dropdown lists is open, which puts the list's own navigation scheme on top.
+        /// </summary>
+        public bool IsDropdownListOpen
+        {
+            get
+            {
+                if (_dropdowns == null)
+                {
+                    return false;
+                }
+
+                foreach (var dropdown in _dropdowns)
+                {
+                    if (dropdown.transform.Find("Dropdown List") != null)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
         private void Awake()
         {
             // Setup dropdown items
@@ -136,6 +178,8 @@ namespace YARG.Menu.ProfileList
                 // Create the dropdown option
                 _gameModeDropdown.options.Add(new(gameMode.ToLocalizedName()));
             }
+
+            InitializeNavigation();
         }
 
         private void OnEnable()
@@ -143,6 +187,243 @@ namespace YARG.Menu.ProfileList
             // These things can change, so do it every time it's enabled.
 
             PopulateDropdownOptions();
+        }
+
+        private void OnDisable()
+        {
+            ExitNavigation();
+        }
+
+        private void InitializeNavigation()
+        {
+            _navigationGroup = _contents.AddComponent<NavigationGroup>();
+            _navigationGroup.SelectionChanged += OnNavigationSelectionChanged;
+
+            _settingsScrollRect = _sidebarContent.GetComponentInParent<ScrollRect>(true);
+            _dropdowns = _contents.GetComponentsInChildren<TMP_Dropdown>(true);
+
+            // In visual order: the name in the header, the setting rows, then the action buttons below them
+            AddNavigatable(_nameContainer, () => SetNameEditMode(true));
+
+            foreach (Transform row in _sidebarContent.transform)
+            {
+                AddRowNavigation(row);
+            }
+
+            foreach (var button in _profileActionButtons)
+            {
+                var captured = button;
+                AddNavigatable(button.gameObject, () => ClickIfInteractable(captured));
+            }
+        }
+
+        private void AddRowNavigation(Transform row)
+        {
+            // Checked before toggles because a dropdown's item template contains one
+            var dropdown = row.GetComponentInChildren<TMP_Dropdown>(true);
+            if (dropdown != null)
+            {
+                AddNavigatable(row.gameObject, () =>
+                {
+                    if (dropdown.interactable)
+                    {
+                        RuntimeNavigatable.OpenDropdownList(dropdown);
+                    }
+                });
+                return;
+            }
+
+            var toggle = row.GetComponentInChildren<Toggle>(true);
+            if (toggle != null)
+            {
+                AddNavigatable(row.gameObject, () =>
+                {
+                    if (toggle.interactable)
+                    {
+                        toggle.isOn = !toggle.isOn;
+                    }
+                });
+                return;
+            }
+
+            // The note speed and highway length fields share a row, so each field's half is its own entry
+            var fields = row.GetComponentsInChildren<TMP_InputField>(true);
+            if (fields.Length > 0)
+            {
+                foreach (var field in fields)
+                {
+                    var target = fields.Length > 1 ? GetChildContaining(row, field.transform) : row;
+                    AddNavigatable(target.gameObject, () => StartSteppingField(field));
+                }
+                return;
+            }
+
+            var button = row.GetComponentInChildren<Button>(true);
+            if (button != null)
+            {
+                AddNavigatable(row.gameObject, () => ClickIfInteractable(button));
+            }
+        }
+
+        private void AddNavigatable(GameObject target, Action confirm)
+        {
+            var nav = RuntimeNavigatable.Attach(target, confirm);
+
+            // Tint the row's label like the settings menu does, on top of the row's own highlight
+            var label = target.transform.Find("Option Name")?.GetComponent<TextMeshProUGUI>();
+            if (label != null)
+            {
+                var defaultColor = label.color;
+                var baseVisual = nav.SelectionVisual;
+                nav.SelectionVisual = selected =>
+                {
+                    baseVisual?.Invoke(selected);
+
+                    var color = RuntimeNavigatable.SelectedTextColor;
+                    color.a = defaultColor.a;
+                    label.color = selected ? color : defaultColor;
+                };
+            }
+
+            _navigationGroup.AddNavigatable(nav);
+        }
+
+        private static Transform GetChildContaining(Transform parent, Transform descendant)
+        {
+            var current = descendant;
+            while (current.parent != null && current.parent != parent)
+            {
+                current = current.parent;
+            }
+
+            return current;
+        }
+
+        private static void ClickIfInteractable(Button button)
+        {
+            if (button.interactable)
+            {
+                button.onClick.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Moves menu navigation from the profile list into the sidebar. Back returns to the list.
+        /// </summary>
+        public void EnterNavigation()
+        {
+            if (IsNavigating || !_contents.activeSelf)
+            {
+                return;
+            }
+
+            IsNavigating = true;
+
+            Navigator.Instance.PushSchemeImmediate(new NavigationScheme(new()
+            {
+                new NavigationScheme.Entry(MenuAction.Up, "Menu.Common.Up",
+                    ctx => _navigationGroup.SelectPrevious(ctx.IsRepeat)),
+                new NavigationScheme.Entry(MenuAction.Down, "Menu.Common.Down",
+                    ctx => _navigationGroup.SelectNext(ctx.IsRepeat)),
+                new NavigationScheme.Entry(MenuAction.Green, "Menu.Common.Confirm",
+                    () => _navigationGroup.ConfirmSelection()),
+                new NavigationScheme.Entry(MenuAction.Red, "Menu.Common.Back", ExitNavigation),
+            }, true));
+
+            _settingsScrollRect.verticalNormalizedPosition = 1f;
+            _navigationGroup.SelectFirst(SelectionOrigin.Navigation);
+        }
+
+        /// <summary>
+        /// Returns menu navigation to the profile list. Does nothing if the sidebar isn't being navigated.
+        /// </summary>
+        public void ExitNavigation()
+        {
+            if (!IsNavigating)
+            {
+                return;
+            }
+
+            StopSteppingField();
+
+            IsNavigating = false;
+            _navigationGroup.ClearSelection();
+
+            if (Navigator.Instance != null)
+            {
+                Navigator.Instance.PopScheme();
+            }
+        }
+
+        private void OnNavigationSelectionChanged(NavigatableBehaviour selected, SelectionOrigin selectionOrigin)
+        {
+            // Stepping applies to the field it started on; a click elsewhere ends it
+            StopSteppingField();
+
+            if (selectionOrigin == SelectionOrigin.Navigation && selected != null &&
+                selected.transform.IsChildOf(_sidebarContent.transform))
+            {
+                _settingsScrollRect.ScrollIntoView((RectTransform) selected.transform);
+            }
+        }
+
+        /// <summary>
+        /// Lets Up and Down step a numeric field, since a controller can't type into it.
+        /// </summary>
+        private void StartSteppingField(TMP_InputField field)
+        {
+            if (!field.interactable)
+            {
+                return;
+            }
+
+            StopSteppingField();
+
+            _steppingField = true;
+            _steppedField = field;
+            _steppedFieldColor = field.textComponent.color;
+            field.textComponent.color = RuntimeNavigatable.SelectedTextColor;
+
+            Navigator.Instance.PushSchemeImmediate(new NavigationScheme(new()
+            {
+                new NavigationScheme.Entry(MenuAction.Up, "Menu.Common.Increase", () => StepField(field, 1)),
+                new NavigationScheme.Entry(MenuAction.Down, "Menu.Common.Decrease", () => StepField(field, -1)),
+                new NavigationScheme.Entry(MenuAction.Green, "Menu.Common.Confirm", StopSteppingField),
+                new NavigationScheme.Entry(MenuAction.Red, "Menu.Common.Back", StopSteppingField),
+            }, null));
+        }
+
+        private void StopSteppingField()
+        {
+            if (!_steppingField)
+            {
+                return;
+            }
+
+            _steppingField = false;
+            if (_steppedField != null)
+            {
+                _steppedField.textComponent.color = _steppedFieldColor;
+            }
+            _steppedField = null;
+
+            if (Navigator.Instance != null)
+            {
+                Navigator.Instance.PopScheme();
+            }
+        }
+
+        private void StepField(TMP_InputField field, int direction)
+        {
+            float.TryParse(field.text, NumberStyles.Float, CultureInfo.CurrentCulture, out float value);
+
+            float step = field == _noteSpeedField ? NOTE_SPEED_STEP
+                : field == _highwayLengthField ? HIGHWAY_LENGTH_STEP
+                : 1f;
+
+            // The field's end-edit handler parses, clamps and reformats the value, as it does after typing
+            field.text = (value + direction * step).ToString(CultureInfo.CurrentCulture);
+            field.onEndEdit.Invoke(field.text);
         }
 
         private void PopulateDropdownOptions()
@@ -226,6 +507,13 @@ namespace YARG.Menu.ProfileList
         {
             _profile = profile;
             _profileView = profileView;
+
+            StopSteppingField();
+            if (!IsNavigating && _navigationGroup != null)
+            {
+                // A mouse click can select a row without entering sidebar navigation
+                _navigationGroup.ClearSelection();
+            }
 
             if (!PlayerContainer.IsProfileTaken(_profile))
             {
@@ -334,6 +622,7 @@ namespace YARG.Menu.ProfileList
 
         public void HideContents()
         {
+            ExitNavigation();
             _contents.SetActive(false);
         }
 
