@@ -2,6 +2,7 @@
 using SimpleFileBrowser;
 using YARG.Core.Logging;
 using YARG.Menu.Navigation;
+using YARG.Menu.Persistent;
 
 using System.Diagnostics;
 using System.IO;
@@ -168,36 +169,45 @@ namespace YARG.Helpers
 
         public static void OpenFolder(string folderPath)
         {
+            if (!PlatformFeatures.CanOpenFileExplorer)
+            {
+                CopyPathToClipboard(folderPath);
+                return;
+            }
+
 #if UNITY_STANDALONE_WIN
             Process.Start("explorer.exe", folderPath);
 #elif UNITY_STANDALONE_OSX
             Process.Start("open", $"\"{folderPath}\"");
 #elif UNITY_STANDALONE_LINUX
             Process.Start("xdg-open", folderPath);
-#else
-            GUIUtility.systemCopyBuffer = folderPath;
-            DialogManager.Instance.ShowMessage(
-                "Path Copied To Clipboard",
-                "Your system does not support the opening of the file explorer dialog, so the path of the folder has " +
-                "been copied to your clipboard.");
 #endif
         }
 
         public static void OpenToFile(string filePath)
         {
+            if (!PlatformFeatures.CanOpenFileExplorer)
+            {
+                CopyPathToClipboard(filePath);
+                return;
+            }
+
 #if UNITY_STANDALONE_WIN
             Process.Start("explorer.exe", $"/select, \"{filePath}\"");
 #elif UNITY_STANDALONE_OSX
             Process.Start("open", $"-R \"{filePath}\"");
 #elif UNITY_STANDALONE_LINUX
             Process.Start("xdg-open", Path.GetDirectoryName(filePath));
-#else
-            GUIUtility.systemCopyBuffer = filePath;
+#endif
+        }
+
+        private static void CopyPathToClipboard(string path)
+        {
+            GUIUtility.systemCopyBuffer = path;
             DialogManager.Instance.ShowMessage(
                 "Path Copied To Clipboard",
                 "Your system does not support the opening of the file explorer dialog, so the path of the folder has " +
                 "been copied to your clipboard.");
-#endif
         }
     }
 }

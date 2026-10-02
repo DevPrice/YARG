@@ -59,7 +59,7 @@ namespace YARG.Settings
                 nameof(Settings.UseSongOffsetCalibration),
 
                 new HeaderMetadata("Venues"),
-                new ButtonRowMetadata(nameof(Settings.OpenVenueFolder)),
+                new ButtonRowMetadata(nameof(Settings.OpenVenueFolder), CanOpenFileExplorer),
                 new FieldMetadata(nameof(Settings.DisableDefaultBackground), isAdvanced: true),
                 new FieldMetadata(nameof(Settings.DisableGlobalBackgrounds), isAdvanced: true),
                 nameof(Settings.DisablePerSongBackgrounds),
@@ -92,7 +92,7 @@ namespace YARG.Settings
                 nameof(Settings.PauseOnMenuOpen),
                 nameof(Settings.MuteOnFocusLoss),
                 nameof(Settings.WrapAroundNavigation),
-                nameof(Settings.DiscordRichPresence),
+                new FieldMetadata(nameof(Settings.DiscordRichPresence), visibleWhen: SupportsDiscord),
                 new FieldMetadata(nameof(Settings.AmIAwesome), isAdvanced: true),
             },
             new SongManagerTab("SongManager", icon: "Songs")
@@ -177,8 +177,8 @@ namespace YARG.Settings
                 new FieldMetadata(nameof(Settings.FpsCap)),
                 new FieldMetadata(nameof(Settings.VenueFpsCap), isAdvanced: true),
                 nameof(Settings.BackgroundFpsCap),
-                nameof(Settings.FullscreenMode),
-                nameof(Settings.Resolution),
+                new FieldMetadata(nameof(Settings.FullscreenMode), visibleWhen: SupportsWindowModes),
+                new FieldMetadata(nameof(Settings.Resolution), visibleWhen: SupportsWindowModes),
                 new FieldMetadata(nameof(Settings.FpsStats), isAdvanced: true),
 
                 new HeaderMetadata("Graphics"),
@@ -236,8 +236,8 @@ namespace YARG.Settings
                 new ButtonRowMetadata(
                     nameof(Settings.CopyCurrentSongTextFilePath),
                     nameof(Settings.CopyCurrentSongJsonFilePath)),
-                new ButtonRowMetadata(nameof(Settings.OpenPersistentDataPath)),
-                new ButtonRowMetadata(nameof(Settings.OpenExecutablePath)),
+                new ButtonRowMetadata(nameof(Settings.OpenPersistentDataPath), CanOpenFileExplorer),
+                new ButtonRowMetadata(nameof(Settings.OpenExecutablePath), CanOpenFileExplorer),
                 new HeaderMetadata("CacheManagement"),
                 new ButtonRowMetadata(nameof(Settings.RemoveRemoteContent)),
             },
@@ -294,7 +294,7 @@ namespace YARG.Settings
                 new HeaderMetadata("Accessibility"),
                 nameof(Settings.FontScaling),
                 new HeaderMetadata("OutputConfiguration"),
-                new FieldMetadata(nameof(Settings.OutputMode), visibleWhen: IsWindows),
+                new FieldMetadata(nameof(Settings.OutputMode), visibleWhen: IsOutputModeVisible),
                 nameof(Settings.OutputDevice),
                 new FieldMetadata(nameof(Settings.AsioBufferSize), visibleWhen: IsAsioVisible),
                 new ButtonRowMetadata(nameof(Settings.OpenAsioControlPanel), IsAsioVisible),
@@ -328,10 +328,16 @@ namespace YARG.Settings
             }
         }
 
-        private static bool IsWindows() => Application.platform is RuntimePlatform.WindowsPlayer or
-            RuntimePlatform.WindowsEditor;
+        private static bool IsOutputModeVisible() => PlatformFeatures.SupportsAsio || PlatformFeatures.SupportsWasapi;
 
-        private static bool IsAsioVisible() => IsWindows() && Settings?.OutputMode.Value == AudioOutputMode.Asio;
+        private static bool IsAsioVisible() =>
+            PlatformFeatures.SupportsAsio && Settings?.OutputMode.Value == AudioOutputMode.Asio;
+
+        private static bool CanOpenFileExplorer() => PlatformFeatures.CanOpenFileExplorer;
+
+        private static bool SupportsWindowModes() => PlatformFeatures.SupportsWindowModes;
+
+        private static bool SupportsDiscord() => PlatformFeatures.SupportsDiscord;
 
         public static void LoadSettings()
         {

@@ -10,6 +10,7 @@ using UnityEngine.UI;
 using YARG.Core.Audio;
 using YARG.Core.Game;
 using YARG.Core.Logging;
+using YARG.Helpers;
 using YARG.Input;
 using YARG.Localization;
 using YARG.Menu;
@@ -259,8 +260,7 @@ namespace YARG.Menu.ProfileList
                     player.Bindings.AddDevice(device);
                     if (!player.Bindings.ContainsBindingsForDevice(device))
                     {
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-                        if (device is XInputController xinput)
+                        if (PlatformFeatures.SupportsXInputGamepadModePrompt && device is XInputController xinput)
                         {
                             xinputDialogShowing = true;
                             var mode = await PromptGamepadMode(xinput);
@@ -272,7 +272,6 @@ namespace YARG.Menu.ProfileList
                             player.Bindings.SetDefaultBinds(xinput, mode.Value);
                         }
                         else
-#endif
                         {
                             player.Bindings.SetDefaultBinds(device);
                         }

@@ -191,6 +191,9 @@ namespace YARG.Song
         public static readonly string GenresFolder = Path.Combine(PathHelper.StreamingAssetsPath, "genres");
 #endif
 
+        private static readonly SeededDownloadFolder _genresFolder = new(GenresFolder,
+            Path.Combine(PathHelper.PersistentDataPath, "genres"), GENRE_REPO_FOLDER);
+
         public static async UniTask LoadGenreMappings()
         {
             if (!GlobalVariables.OfflineMode)
@@ -213,7 +216,7 @@ namespace YARG.Song
         }
 
         private static void _readGenreMappings() {
-            var mappingsDirectoryPath = Path.Combine(GenresFolder, GENRE_REPO_FOLDER, MAPPINGS_FOLDER);
+            var mappingsDirectoryPath = Path.Combine(_genresFolder.ActiveRepoDirectory, MAPPINGS_FOLDER);
 
             if (!Directory.Exists(mappingsDirectoryPath))
             {
@@ -326,22 +329,7 @@ namespace YARG.Song
 
         private static async UniTask _downloadGenreMappings()
         {
-            // Create the sources folder if it doesn't exist
-            Directory.CreateDirectory(GenresFolder);
-
-            string genreVersionPath = Path.Combine(GenresFolder, "version.txt");
-            string currentVersion = null;
-            try
-            {
-                if (File.Exists(genreVersionPath))
-                {
-                    currentVersion = await File.ReadAllTextAsync(genreVersionPath);
-                }
-            }
-            catch (Exception e)
-            {
-                YargLogger.LogException(e, "Failed to get current song genre version.");
-            }
+            string currentVersion = await _genresFolder.ReadActiveVersionAsync();
 
             // Look for new version
             string newestVersion = null;
@@ -375,8 +363,12 @@ namespace YARG.Song
             }
 
             // If up to date, finish
-            var repoDir = Path.Combine(GenresFolder, GENRE_REPO_FOLDER);
-            if (newestVersion == currentVersion && Directory.Exists(repoDir))
+            if (newestVersion == currentVersion)
+            {
+                return;
+            }
+
+            if (!_genresFolder.TryCreateDownloadFolder())
             {
                 return;
             }
@@ -384,8 +376,11 @@ namespace YARG.Song
             // Otherwise, update!
             try
             {
+                var downloadFolder = _genresFolder.DownloadFolder;
+                var repoDir = _genresFolder.DownloadRepoDirectory;
+
                 // Download
-                string zipPath = Path.Combine(GenresFolder, "update.zip");
+                string zipPath = Path.Combine(downloadFolder, "update.zip");
                 using (var request = new UnityWebRequest(GENRE_ZIP_URL, UnityWebRequest.kHttpVerbGET))
                 {
                     request.SetRequestHeader("User-Agent", "YARG");
@@ -398,13 +393,14 @@ namespace YARG.Song
                 }
 
                 // Delete the old folder
+                File.Delete(_genresFolder.DownloadVersionPath);
                 if (Directory.Exists(repoDir))
                 {
                     Directory.Delete(repoDir, true);
                 }
 
                 // Extract the base and extras folder
-                ZipFile.ExtractToDirectory(zipPath, GenresFolder);
+                ZipFile.ExtractToDirectory(zipPath, downloadFolder);
 
                 // Delete the random folders
                 var ignoreFolder = Path.Combine(repoDir, "ignore");
@@ -429,7 +425,7 @@ namespace YARG.Song
                 }
 
                 // Create the version txt
-                await File.WriteAllTextAsync(Path.Combine(GenresFolder, "version.txt"), newestVersion);
+                await File.WriteAllTextAsync(_genresFolder.DownloadVersionPath, newestVersion);
 
                 // Delete the zip
                 File.Delete(zipPath);

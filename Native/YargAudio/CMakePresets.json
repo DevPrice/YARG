@@ -17,6 +17,20 @@
       }
     },
     {
+      "name": "windows-store-x64",
+      "displayName": "Windows Store (UWP) x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-store-x64",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "WindowsStore",
+        "CMAKE_SYSTEM_VERSION": "10.0",
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": "ProgramDatabase",
+        "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/INCREMENTAL:NO /DEBUG /OPT:REF /OPT:ICF",
+        "YARG_AUDIO_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "linux-x64",
       "displayName": "Linux x64",
       "generator": "Unix Makefiles",
@@ -43,6 +57,11 @@
     {
       "name": "windows-x64-release",
       "configurePreset": "windows-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-store-x64-release",
+      "configurePreset": "windows-store-x64",
       "configuration": "Release"
     },
     {

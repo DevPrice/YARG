@@ -39,7 +39,14 @@ namespace YARG.Gameplay
         private const string DEFAULT_ANIMATION_CONTROLLER_FILENAME = "DefaultController";
         private const string DEFAULT_ANIMATION_PARAMETERS_FILENAME = "AnimatorParameters";
 
-        private string VIDEO_PATH;
+        private const string DEFAULT_TEMP_VIDEO_EXTENSION = ".mp4";
+        private const string TEMP_VIDEO_PREFIX            = "yarg-video-";
+        private const int    TEMP_VIDEO_COPY_BUFFER_SIZE  = 1024 * 1024;
+
+        private static readonly TimeSpan STALE_TEMP_VIDEO_AGE = TimeSpan.FromDays(1);
+        private static          bool     _sweptStaleTempVideos;
+
+        private string _tempVideoPath;
 
         [SerializeField]
         private YargVideoPlayer _videoPlayer;
@@ -144,7 +151,7 @@ namespace YARG.Gameplay
 
                 // Song specific textures
                 var tm = GetComponent<TextureManager>();
-                var songBg = GameManager.Song.LoadBackground(true);
+                using var songBg = GameManager.Song.LoadBackground(true);
 
                 foreach (var renderer in editorRenderers)
                 {
@@ -179,59 +186,71 @@ namespace YARG.Gameplay
             }
 #endif
 
-            using var result = VenueLoader.GetVenue(GameManager.Song, out _source);
+            var result = VenueLoader.GetVenue(GameManager.Song, out _source);
 
             if (result == null)
             {
                 return;
             }
 
-            var vocalGender = GameManager.Song.VocalGender;
-
-            var colorDim = _backgroundDimmer.color.WithAlpha(1 - SettingsManager.Settings.SongBackgroundOpacity.Value);
-
-            _backgroundDimmer.color = colorDim;
-
-            // If we have a venue hint for the song and we can load the hinted yarground, prefer that
-            var hint = GameManager.Song.VenueHint;
-            if (!string.IsNullOrWhiteSpace(hint))
+            bool resultTransferred = false;
+            try
             {
-                if (await AddressableVenueExists(hint))
+                var vocalGender = GameManager.Song.VocalGender;
+
+                var colorDim = _backgroundDimmer.color.WithAlpha(1 - SettingsManager.Settings.SongBackgroundOpacity.Value);
+
+                _backgroundDimmer.color = colorDim;
+
+                // If we have a venue hint for the song and we can load the hinted yarground, prefer that
+                var hint = GameManager.Song.VenueHint;
+                if (!string.IsNullOrWhiteSpace(hint))
                 {
-                    var loaded = await LoadAddressableYarground(hint, vocalGender);
-                    if (loaded)
+                    if (await AddressableVenueExists(hint))
                     {
-                        GameManager.CrowdEventHandler.Start();
-                        return;
+                        var loaded = await LoadAddressableYarground(hint, vocalGender);
+                        if (loaded)
+                        {
+                            GameManager.CrowdEventHandler.Start();
+                            return;
+                        }
                     }
                 }
-            }
 
-            // Hint didn't resolve or failed to load, so pretend it didn't exist
+                // Hint didn't resolve or failed to load, so pretend it didn't exist
 
-            _type = result.Type;
+                _type = result.Type;
 
-            // Start crowd event handler now if we aren't waiting on a yarground
-            // TODO: Figure out how to decouple this
-            if (_type != BackgroundType.Yarground)
-            {
-                GameManager.CrowdEventHandler.Start();
-            }
-
-            switch (_type)
-            {
-                case BackgroundType.Yarground:
-                    await LoadYarground(result);
+                // Start crowd event handler now if we aren't waiting on a yarground
+                // TODO: Figure out how to decouple this
+                if (_type != BackgroundType.Yarground)
+                {
                     GameManager.CrowdEventHandler.Start();
-                    break;
-                case BackgroundType.Video:
-                    LoadVideoBackground(result);
-                    break;
-                case BackgroundType.Image:
-                    _backgroundImage.texture = result.Image.LoadTexture(false);
-                    _backgroundImage.uvRect = new Rect(0f, 0f, 1f, -1f);
-                    _backgroundImage.gameObject.SetActive(true);
-                    break;
+                }
+
+                switch (_type)
+                {
+                    case BackgroundType.Yarground:
+                        resultTransferred = true;
+                        await LoadYarground(result);
+                        GameManager.CrowdEventHandler.Start();
+                        break;
+                    case BackgroundType.Video:
+                        LoadVideoBackground(result);
+                        break;
+                    case BackgroundType.Image:
+                        _backgroundImage.texture = result.Image.LoadTexture(false);
+                        _backgroundImage.uvRect = new Rect(0f, 0f, 1f, -1f);
+                        _backgroundImage.gameObject.SetActive(true);
+                        break;
+                }
+            }
+            finally
+            {
+                if (!resultTransferred)
+                {
+                    result.Dispose();
+                }
             }
         }
 
@@ -293,28 +312,48 @@ namespace YARG.Gameplay
             return true;
         }
 
+        // Takes ownership of result: its stream is handed to the venue's BundleBackgroundManager, or disposed on failure
         private async UniTask LoadYarground(BackgroundResult result)
         {
-            var bundle = AssetBundle.LoadFromStream(result.Stream);
-            AssetBundle shaderBundle = null;
-
-            // KEEP THIS PATH LOWERCASE
-            // Breaks things for other platforms, because Unity
-            var bg = (GameObject) await bundle.LoadAssetAsync<GameObject>(
-                BackgroundHelper.BACKGROUND_PREFAB_PATH.ToLowerInvariant());
-
-            // Load Metal shaders, if necessary
-            shaderBundle = BackgroundHelper.LoadMetalShaders(bundle, bg, BackgroundHelper.ExportType.Background);
-
-            // Load custom audio
-            await LoadCustomAudioAssets(bg, bundle);
-
-            var gender = GameManager.Song.VocalGender;
-            await LoadYargroundPrefab(bg, gender, manager =>
+            AssetBundle bundle = null;
+            bool bundleTransferred = false;
+            try
             {
-                manager.Bundle = bundle;
-                manager.ShaderBundles.Add(shaderBundle);
-            });
+                bundle = AssetBundle.LoadFromStream(result.Stream);
+                AssetBundle shaderBundle = null;
+
+                // KEEP THIS PATH LOWERCASE
+                // Breaks things for other platforms, because Unity
+                var bg = (GameObject) await bundle.LoadAssetAsync<GameObject>(
+                    BackgroundHelper.BACKGROUND_PREFAB_PATH.ToLowerInvariant());
+
+                // Load Metal shaders, if necessary
+                shaderBundle = BackgroundHelper.LoadMetalShaders(bundle, bg, BackgroundHelper.ExportType.Background);
+
+                // Load custom audio
+                await LoadCustomAudioAssets(bg, bundle);
+
+                var gender = GameManager.Song.VocalGender;
+                await LoadYargroundPrefab(bg, gender, manager =>
+                {
+                    manager.Bundle = bundle;
+                    manager.BundleStream = result.Stream;
+                    bundleTransferred = true;
+                    manager.ShaderBundles.Add(shaderBundle);
+                });
+            }
+            finally
+            {
+                if (!bundleTransferred)
+                {
+                    if (bundle != null)
+                    {
+                        bundle.Unload(true);
+                    }
+
+                    result.Dispose();
+                }
+            }
         }
 
         private async UniTask LoadYargroundPrefab(GameObject bg, VocalGender gender,
@@ -325,7 +364,7 @@ namespace YARG.Gameplay
             var renderers = bg.GetComponentsInChildren<Renderer>(true);
 
             var textureManager = GetComponent<TextureManager>();
-            var songBackground = GameManager.Song.LoadBackground(SettingsManager.Settings.CensorMatureContent.Value);
+            using var songBackground = GameManager.Song.LoadBackground(SettingsManager.Settings.CensorMatureContent.Value);
 
             foreach (var renderer in renderers)
             {
@@ -501,25 +540,20 @@ namespace YARG.Gameplay
             textureManager.CreateVideoTexture();
             _videoPlayer.targetTexture = videoTexture;
 
-            switch (bg.Stream)
+            if (bg.Stream is FileStream fs)
             {
-                case FileStream fs:
+                _videoPlayer.url = fs.Name;
+            }
+            else
+            {
+                // The video players only accept a path, so any other stream must be copied out in full
+                var extension = bg.Stream is SngFileStream sngStream ? Path.GetExtension(sngStream.Name) : null;
+                if (!TryCopyVideoToTempFile(bg.Stream, extension, out var path))
                 {
-                    _videoPlayer.url = fs.Name;
-                    break;
+                    return;
                 }
-                case SngFileStream sngStream:
-                {
-                    // UNFORTUNATELY, Videoplayer can't use streams, so video files
-                    // MUST BE FULLY DECRYPTED
 
-                    VIDEO_PATH = Path.Combine(Application.persistentDataPath, sngStream.Name);
-                    using var tmp = File.OpenWrite(VIDEO_PATH);
-                    File.SetAttributes(VIDEO_PATH, File.GetAttributes(VIDEO_PATH) | FileAttributes.Temporary | FileAttributes.Hidden);
-                    bg.Stream.CopyTo(tmp);
-                    _videoPlayer.url = VIDEO_PATH;
-                    break;
-                }
+                _videoPlayer.url = path;
             }
 
             _videoPlayer.playerEnabled = true;
@@ -527,6 +561,79 @@ namespace YARG.Gameplay
             _videoPlayer.seekCompleted += OnVideoSeeked;
             _videoPlayer.Prepare();
             enabled = true;
+        }
+
+        private bool TryCopyVideoToTempFile(Stream source, string extension, out string path)
+        {
+            DeleteTempVideo();
+            SweepStaleTempVideos();
+
+            if (string.IsNullOrEmpty(extension))
+            {
+                extension = DEFAULT_TEMP_VIDEO_EXTENSION;
+            }
+
+            path = Path.Combine(Application.temporaryCachePath, TEMP_VIDEO_PREFIX + Guid.NewGuid().ToString("N") + extension);
+            _tempVideoPath = path;
+            try
+            {
+                using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                source.CopyTo(file, TEMP_VIDEO_COPY_BUFFER_SIZE);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, "Failed to copy video background to a temporary file");
+                DeleteTempVideo();
+                path = null;
+                return false;
+            }
+        }
+
+        private void DeleteTempVideo()
+        {
+            if (_tempVideoPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                File.Delete(_tempVideoPath);
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, $"Failed to delete temporary video {_tempVideoPath}");
+            }
+
+            _tempVideoPath = null;
+        }
+
+        // Files left behind by a crash. The age check keeps this from deleting a video that another running
+        // instance is still playing, since temporaryCachePath is shared between instances.
+        private static void SweepStaleTempVideos()
+        {
+            if (_sweptStaleTempVideos)
+            {
+                return;
+            }
+
+            _sweptStaleTempVideos = true;
+            try
+            {
+                var cutoff = DateTime.UtcNow - STALE_TEMP_VIDEO_AGE;
+                foreach (var file in Directory.EnumerateFiles(Application.temporaryCachePath, TEMP_VIDEO_PREFIX + "*"))
+                {
+                    if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    {
+                        File.Delete(file);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, "Failed to clean up stale temporary videos");
+            }
         }
 
         private void Update()
@@ -1249,11 +1356,7 @@ namespace YARG.Gameplay
 
         public void Dispose()
         {
-            if (VIDEO_PATH != null)
-            {
-                File.Delete(VIDEO_PATH);
-                VIDEO_PATH = null;
-            }
+            DeleteTempVideo();
 
             // In case this somehow doesn't happen in GameplayDestroy
             if (loadedAddressable)

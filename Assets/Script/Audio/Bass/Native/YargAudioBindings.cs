@@ -9,11 +9,6 @@ namespace YARG.Audio.BASS.Native
 {
     public static class YargAudioBindings
     {
-#if UNITY_STANDALONE_LINUX || UNITY_EDITOR_LINUX || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-        private const int RTLD_NOW = 2;
-        private const int RTLD_GLOBAL = 8;
-#endif
-
         private static IntPtr _libraryHandle = IntPtr.Zero;
         private static string? _loadedPath;
 
@@ -78,7 +73,7 @@ namespace YARG.Audio.BASS.Native
                 return true;
             }
 
-            var handle = LoadNativeLibrary(libraryPath);
+            var handle = NativeLibraries.Load(libraryPath);
             if (handle == IntPtr.Zero)
             {
                 return false;
@@ -280,7 +275,7 @@ namespace YARG.Audio.BASS.Native
                 return null;
             }
 
-            var address = GetProcAddress(handle, name);
+            var address = NativeLibraries.GetExport(handle, name);
             if (address == IntPtr.Zero)
             {
                 return null;
@@ -292,8 +287,8 @@ namespace YARG.Audio.BASS.Native
 #if UNITY_EDITOR
         private static string GetLibraryPath()
         {
-            var projectRoot = Directory.GetCurrentDirectory();
-            var sourcePath = GetSourcePluginPath(projectRoot);
+            var assetsPath = Path.Combine(Directory.GetCurrentDirectory(), "Assets");
+            var sourcePath = NativeLibraries.GetLibraryPath(assetsPath, "YargAudio", "yarg_audio");
             if (!File.Exists(sourcePath))
             {
                 return sourcePath;
@@ -314,58 +309,10 @@ namespace YARG.Audio.BASS.Native
 
             return shadowPath;
         }
-
-        private static string GetSourcePluginPath(string projectRoot)
-        {
-#if UNITY_EDITOR_OSX
-            return Path.Combine(projectRoot, "Assets", "Plugins", "YargAudio", "Mac", "libyarg_audio.dylib");
-#elif UNITY_EDITOR_LINUX
-            return Path.Combine(projectRoot, "Assets", "Plugins", "YargAudio", "Linux", "x86_64", "libyarg_audio.so");
 #else
-            return Path.Combine(projectRoot, "Assets", "Plugins", "YargAudio", "Windows", "x86_64", "yarg_audio.dll");
+        private static string GetLibraryPath() =>
+            NativeLibraries.GetLibraryPath(PathHelper.ApplicationDataPath, "YargAudio", "yarg_audio");
 #endif
-        }
-#else
-        private static string GetLibraryPath()
-        {
-            var dataPath = PathHelper.ApplicationDataPath;
-#if UNITY_STANDALONE_OSX
-            return Path.Combine(dataPath, "Plugins", "libyarg_audio.dylib");
-#elif UNITY_STANDALONE_LINUX
-            return Path.Combine(dataPath, "Plugins", "libyarg_audio.so");
-#elif UNITY_STANDALONE_WIN
-            return Path.Combine(dataPath, "Plugins", "x86_64", "yarg_audio.dll");
-#else
-            return "yarg_audio";
-#endif
-        }
-#endif
-
-        private static IntPtr LoadNativeLibrary(string path)
-        {
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-            return WindowsNative.LoadLibrary(path);
-#elif UNITY_STANDALONE_LINUX || UNITY_EDITOR_LINUX
-            return LinuxNative.dlopen(path, RTLD_NOW | RTLD_GLOBAL);
-#elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-            return MacNative.dlopen(path, RTLD_NOW | RTLD_GLOBAL);
-#else
-            return IntPtr.Zero;
-#endif
-        }
-
-        private static IntPtr GetProcAddress(IntPtr handle, string symbol)
-        {
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-            return WindowsNative.GetProcAddress(handle, symbol);
-#elif UNITY_STANDALONE_LINUX || UNITY_EDITOR_LINUX
-            return LinuxNative.dlsym(handle, symbol);
-#elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-            return MacNative.dlsym(handle, symbol);
-#else
-            return IntPtr.Zero;
-#endif
-        }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint GetAbiVersionDelegate();
@@ -483,34 +430,5 @@ namespace YARG.Audio.BASS.Native
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int ReadAheadStreamDestroyDelegate(IntPtr stream, out int bassError);
-
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-        private static class WindowsNative
-        {
-            [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]
-            public static extern IntPtr LoadLibrary(string lpFileName);
-
-            [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
-            public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-        }
-#elif UNITY_STANDALONE_LINUX || UNITY_EDITOR_LINUX
-        private static class LinuxNative
-        {
-            [DllImport("libdl.so.2")]
-            public static extern IntPtr dlopen(string filename, int flags);
-
-            [DllImport("libdl.so.2")]
-            public static extern IntPtr dlsym(IntPtr handle, string symbol);
-        }
-#elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-        private static class MacNative
-        {
-            [DllImport("libSystem.dylib")]
-            public static extern IntPtr dlopen(string filename, int flags);
-
-            [DllImport("libSystem.dylib")]
-            public static extern IntPtr dlsym(IntPtr handle, string symbol);
-        }
-#endif
     }
 }

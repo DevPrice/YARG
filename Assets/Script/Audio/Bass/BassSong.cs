@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using AOT;
 using ManagedBass;
 using ManagedBass.Mix;
 using UnityEngine;
@@ -25,6 +26,9 @@ namespace YARG.Audio.BASS
         private const float MIN_PLAYBACK_SPEED           = 0.05f;
         private const float MAX_PLAYBACK_SPEED           = 51f;
 
+        private static readonly BassCallbackTargets<BassSong> SongEndTargets   = new();
+        private static readonly SyncProcedure                 SongEndProcedure = OnSongEnd;
+
         private readonly BassStemPipeline            _stemPipeline;
         private readonly HashSet<BassOneShotChannel> _oneShots     = new();
         private readonly HashSet<BassToneChannel>    _toneChannels = new();
@@ -43,6 +47,7 @@ namespace YARG.Audio.BASS
         private bool           _seekPending;
         private double         _seekPosition;
         private int            _songEndHandle;
+        private IntPtr         _songEndUser;
         private float          _songSpeed = 1f;
         private float          _speed     = 1f;
         private double         _outputLatency;
@@ -100,16 +105,24 @@ namespace YARG.Audio.BASS
                 return;
             }
 
-            void sync(int _, int __, int ___, IntPtr _____)
+            _songEndUser = SongEndTargets.Add(this);
+            _songEndHandle = BassCallbackImports.MixerChannelSetSync(_longestHandle, SyncFlags.End, 0,
+                SongEndProcedure, _songEndUser);
+            if (_songEndHandle == 0)
             {
-                var end = _songEnd;
-                if (end != null)
-                {
-                    UnityMainThreadCallback.QueueEvent(end.Invoke);
-                }
+                SongEndTargets.Remove(_songEndUser);
+                _songEndUser = IntPtr.Zero;
             }
+        }
 
-            _songEndHandle = BassMix.ChannelSetSync(_longestHandle, SyncFlags.End, 0, sync);
+        [MonoPInvokeCallback(typeof(SyncProcedure))]
+        private static void OnSongEnd(int _, int __, int ___, IntPtr user)
+        {
+            var end = SongEndTargets.Get(user)?._songEnd;
+            if (end != null)
+            {
+                UnityMainThreadCallback.QueueEvent(end.Invoke);
+            }
         }
 
         internal bool TryAttachOutput(BassOutput output)
@@ -589,6 +602,7 @@ namespace YARG.Audio.BASS
 
             _toneChannels.Clear();
             _stemPipeline.Dispose();
+            SongEndTargets.Remove(_songEndUser);
         }
 
 

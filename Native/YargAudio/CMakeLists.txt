@@ -11,6 +11,14 @@ endif()
 option(YARG_AUDIO_BUILD_TESTS "Build native unit tests" ON)
 find_package(Threads REQUIRED)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+    # The store toolset ships no static CRT. Packaged apps get the DLL CRT from
+    # the Microsoft.VCLibs framework package, as Unity's IL2CPP player does.
+    set(YARG_AUDIO_MSVC_RUNTIME "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+else()
+    set(YARG_AUDIO_MSVC_RUNTIME "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 set(YARG_AUDIO_SOURCES
     src/AudioRingBuffer.cpp
     src/BassCoreBindings.cpp
@@ -47,7 +55,7 @@ if(MSVC)
     target_compile_options(yarg_audio PRIVATE /W4 /permissive- /EHsc /Brepro)
     target_link_options(yarg_audio PRIVATE /Brepro)
     set_property(TARGET yarg_audio PROPERTY MSVC_RUNTIME_LIBRARY
-        "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        "${YARG_AUDIO_MSVC_RUNTIME}")
 else()
     target_compile_options(yarg_audio PRIVATE -Wall -Wextra -Wpedantic)
     if(APPLE)
@@ -103,7 +111,7 @@ if(YARG_AUDIO_BUILD_TESTS)
         target_compile_options(yarg_audio_tests PRIVATE /W4 /permissive- /EHsc /Brepro)
         target_link_options(yarg_audio_tests PRIVATE /Brepro)
         set_property(TARGET yarg_audio_tests PROPERTY MSVC_RUNTIME_LIBRARY
-            "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+            "${YARG_AUDIO_MSVC_RUNTIME}")
     else()
         target_compile_options(yarg_audio_tests PRIVATE -Wall -Wextra -Wpedantic)
         if(UNIX AND NOT APPLE)

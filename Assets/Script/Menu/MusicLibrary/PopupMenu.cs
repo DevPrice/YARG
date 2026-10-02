@@ -355,21 +355,24 @@ namespace YARG.Menu.MusicLibrary
             {
                 var song = songViewType.SongEntry;
 
-                CreateItem("ViewSongFolder", () =>
+                if (PlatformFeatures.CanOpenFileExplorer)
                 {
-                    switch (song.SubType)
+                    CreateItem("ViewSongFolder", () =>
                     {
-                        case EntryType.Ini:
-                        case EntryType.ExCON:
-                            FileExplorerHelper.OpenFolder(song.ActualLocation);
-                            break;
-                        case EntryType.Sng:
-                        case EntryType.CON:
-                            FileExplorerHelper.OpenToFile(song.ActualLocation);
-                            break;
-                    }
-                    gameObject.SetActive(false);
-                });
+                        switch (song.SubType)
+                        {
+                            case EntryType.Ini:
+                            case EntryType.ExCON:
+                                FileExplorerHelper.OpenFolder(song.ActualLocation);
+                                break;
+                            case EntryType.Sng:
+                            case EntryType.CON:
+                                FileExplorerHelper.OpenToFile(song.ActualLocation);
+                                break;
+                        }
+                        gameObject.SetActive(false);
+                    });
+                }
 
                 CreateItem("CopySongChecksum", () =>
                 {
