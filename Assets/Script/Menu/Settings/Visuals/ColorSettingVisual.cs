@@ -2,6 +2,7 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using YARG.Core.Input;
 using YARG.Menu.Navigation;
 using YARG.Menu.Persistent;
 using YARG.Settings.Types;
@@ -54,7 +55,8 @@ namespace YARG.Menu.Settings.Visuals
         {
             return new NavigationScheme(new()
             {
-                NavigateFinish
+                NavigateFinish,
+                new NavigationScheme.Entry(MenuAction.Green, "Menu.Common.Edit", OpenColorPicker),
             }, true);
         }
 
