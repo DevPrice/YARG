@@ -38,4 +38,27 @@ namespace YARG.Audio.BASS
         private static extern int BASS_RecordStart(int frequency, int channels, int flags, RecordProcedure procedure,
             IntPtr user);
     }
+
+    /// <summary>
+    ///     ManagedBass's <c>BassMix.ChannelSetMatrix</c> marshals a <c>float[,]</c>, which IL2CPP cannot marshal
+    ///     (MarshalDirectiveException), so this pins the array and passes its row-major data, the layout BASS reads.
+    /// </summary>
+    internal static class BassMatrixImports
+    {
+        public static bool ChannelSetMatrix(int handle, float[,] matrix)
+        {
+            var pin = GCHandle.Alloc(matrix, GCHandleType.Pinned);
+            try
+            {
+                return BASS_Mixer_ChannelSetMatrix(handle, pin.AddrOfPinnedObject());
+            }
+            finally
+            {
+                pin.Free();
+            }
+        }
+
+        [DllImport("bassmix")]
+        private static extern bool BASS_Mixer_ChannelSetMatrix(int handle, IntPtr matrix);
+    }
 }
