@@ -89,6 +89,8 @@ namespace YARG.Gameplay
 
         private BundleBackgroundManager _bundleBackgroundManager;
 
+        private static bool _loggedYargroundFallback;
+
 #if UNITY_EDITOR
         private          bool             _usingEditorVenue;
         private          string           _editorVenuePath;
@@ -319,7 +321,19 @@ namespace YARG.Gameplay
             bool bundleTransferred = false;
             try
             {
-                bundle = AssetBundle.LoadFromStream(result.Stream);
+                bundle = PlatformFeatures.SupportsYargroundBundles ? AssetBundle.LoadFromStream(result.Stream) : null;
+                if (bundle == null)
+                {
+                    if (!_loggedYargroundFallback)
+                    {
+                        _loggedYargroundFallback = true;
+                        YargLogger.LogWarning("Venue bundle could not be loaded on this platform, using a built-in venue instead.");
+                    }
+
+                    await LoadAddressableYarground(GameManager.Song.VocalGender);
+                    return;
+                }
+
                 AssetBundle shaderBundle = null;
 
                 // KEEP THIS PATH LOWERCASE
