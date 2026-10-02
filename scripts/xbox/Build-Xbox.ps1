@@ -54,6 +54,13 @@ Write-Host "Signing with $($cert.Subject) ($($cert.Thumbprint))"
 
 if ($CMakeDir -and -not (Test-Path (Join-Path $CMakeDir 'cmake.exe'))) { throw "No cmake.exe in $CMakeDir" }
 
+if (-not $PackageVersion) {
+    # Same scheme as XboxBuild.GetPackageVersion: days since 2026-01-01, then the UTC minute of the day.
+    $now = [DateTime]::UtcNow
+    $PackageVersion = "1.0.$([int]($now.Date - [DateTime]::new(2026, 1, 1)).TotalDays).$([int]$now.TimeOfDay.TotalMinutes)"
+}
+Write-Host "Package version $PackageVersion"
+
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $vsPath = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild Microsoft.VisualStudio.Workload.Universal `
     -property installationPath | Select-Object -First 1
@@ -117,6 +124,15 @@ $sln = Get-ChildItem $unityOut -Filter *.sln | Select-Object -First 1
 if (-not $sln) { throw "No .sln under $unityOut" }
 
 if (-not $SkipMsBuild) {
+    # Unity keeps an existing Package.appxmanifest when it regenerates the solution, so the version in it
+    # sticks at whatever the first build wrote, and the console refuses to install over it. Stamp it here.
+    $manifest = Get-ChildItem $unityOut -Recurse -Filter 'Package.appxmanifest' |
+        Where-Object FullName -notmatch '\\(bin|obj|AppPackages)\\' | Select-Object -First 1
+    if (-not $manifest) { throw "No Package.appxmanifest under $unityOut" }
+    [xml]$xml = Get-Content -Raw $manifest.FullName
+    $xml.Package.Identity.Version = "$PackageVersion"
+    $xml.Save($manifest.FullName)
+
     $msbuild = Join-Path $vsPath 'MSBuild\Current\Bin\amd64\MSBuild.exe'
     if (-not (Test-Path $msbuild)) { throw "$msbuild not found" }
     $msbuildLog = Join-Path $logs 'msbuild.log'
