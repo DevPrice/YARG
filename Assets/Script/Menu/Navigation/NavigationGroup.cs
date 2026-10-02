@@ -81,15 +81,25 @@ namespace YARG.Menu.Navigation
 
         private void _AddNavigatable(NavigatableBehaviour navigatable)
         {
+            _InsertNavigatable(_navigatables.Count, navigatable);
+        }
+
+        private void _InsertNavigatable(int index, NavigatableBehaviour navigatable)
+        {
             if (_navigatables.Contains(navigatable))
                 throw new InvalidOperationException($"Navigation group {this} already contains navigatable {navigatable}!");
 
-            _navigatables.Add(navigatable);
+            _navigatables.Insert(index, navigatable);
+            if (SelectedIndex is { } selected && index <= selected)
+            {
+                SelectedIndex = selected + 1;
+            }
+
             navigatable.NavigationGroup = this;
             navigatable.SelectionStateChanged += OnSelectionStateChanged;
         }
 
-        public void AddNavigatable(NavigatableBehaviour navigatable)
+        private void DisableAddAllChildrenOnAwake()
         {
             if (_addAllChildrenOnAwake)
             {
@@ -98,8 +108,25 @@ namespace YARG.Menu.Navigation
                     ToString());
                 _addAllChildrenOnAwake = false;
             }
+        }
 
+        public void AddNavigatable(NavigatableBehaviour navigatable)
+        {
+            DisableAddAllChildrenOnAwake();
             _AddNavigatable(navigatable);
+        }
+
+        /// <summary>
+        /// Inserts <paramref name="navigatable"/> at <paramref name="index"/> in navigation order.
+        /// The current selection stays on the same navigatable.
+        /// </summary>
+        public void InsertNavigatable(int index, NavigatableBehaviour navigatable)
+        {
+            if (index < 0 || index > _navigatables.Count)
+                throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be between 0 and the count of navigatables ({_navigatables.Count})!");
+
+            DisableAddAllChildrenOnAwake();
+            _InsertNavigatable(index, navigatable);
         }
 
         public void AddNavigatable(GameObject gameObj)
@@ -115,7 +142,19 @@ namespace YARG.Menu.Navigation
             if (SelectedBehaviour == navigatable && SelectedBehaviour != null)
                 SelectedBehaviour.SetSelected(false, SelectionOrigin.Programmatically);
 
-            _navigatables.Remove(navigatable);
+            int index = _navigatables.IndexOf(navigatable);
+            if (index >= 0)
+            {
+                _navigatables.RemoveAt(index);
+
+                // Otherwise removing an earlier entry leaves SelectedIndex on the next one,
+                // while the selected visual stays on the old one
+                if (SelectedIndex is { } selected && index < selected)
+                {
+                    SelectedIndex = selected - 1;
+                }
+            }
+
             navigatable.NavigationGroup = null;
         }
 
