@@ -63,7 +63,7 @@ namespace YARG.Platform.Xbox
             {
                 if (_reportedDrives.Add(letter))
                 {
-                    YargLogger.LogFormatWarning("Drive {0} is not accessible: {1}", root, e.Message);
+                    YargLogger.LogFormatWarning<string, string>("Drive {0} is not accessible: {1}", root, e.Message);
                 }
             }
         }
