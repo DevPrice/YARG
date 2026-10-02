@@ -254,7 +254,8 @@
             "ConfirmDelete": {
                 "Title": "Delete \"{0}\"?",
                 "Message": "Are you sure you want to delete <b>{0}</b>?\n\n{1}",
-                "Confirm": "Type <b>{0}</b> here to confirm"
+                "Confirm": "Type <b>{0}</b> here to confirm",
+                "HoldToDelete": "(Hold) Delete"
             },
             "Experimental": {
                 "Title": "Experimental Features Notice",
@@ -571,6 +572,10 @@
             "ActiveProfiles" : "Active Profiles",
             "AddBot": "Add Bot",
             "AddProfile": "Add Profile",
+            "Connect": "Connect",
+            "Disconnect": "Disconnect",
+            "Settings": "Settings",
+            "MoveProfile": "Move Profile",
             "Bots" : "Bots",
             "Players" : "Players",
             "CouldNotLoad": "Couldn't Load",

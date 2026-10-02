@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 
+using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using TMPro;
 using UnityEngine;
@@ -109,6 +110,25 @@ namespace YARG.Menu.Dialogs
         {
             _dialogButtonContainer.DestroyChildren();
             _navigationGroup.ClearNavigatables();
+        }
+
+        /// <summary>
+        /// Adds <paramref name="entries"/> to the navigation scheme the dialog pushed when it opened. Call it right
+        /// after showing the dialog, while that scheme is still the current one.
+        /// </summary>
+        public void AddNavigationEntries(params NavigationScheme.Entry[] entries)
+        {
+            var scheme = GetNavigationScheme();
+            var combined = new List<NavigationScheme.Entry>(scheme.Entries);
+            combined.AddRange(entries);
+
+            // OnDisable pops whatever is on top, so swapping the scheme keeps the push and pop balanced
+            Navigator.Instance.PopScheme();
+            Navigator.Instance.PushSchemeImmediate(
+                new NavigationScheme(combined, scheme.AllowsMusicPlayer, scheme.PopCallback)
+                {
+                    SuppressHelpBar = scheme.SuppressHelpBar
+                });
         }
 
         public virtual void Submit()

@@ -59,5 +59,40 @@ namespace YARG.Helpers.Extensions
             var position = scrollRect.VerticalPositionInUnits() + delta;
             scrollRect.verticalNormalizedPosition = Mathf.Clamp(position / scrollRect.ScrollableHeight(), 0, 1);
         }
+
+        /// <summary>
+        /// Scrolls vertically by the smallest amount that brings <paramref name="target"/>, a descendant of the
+        /// content, fully into the viewport. Assumes the content is anchored to the top.
+        /// </summary>
+        public static void ScrollIntoView(this ScrollRect scrollRect, RectTransform target)
+        {
+            if (scrollRect.viewport == null || scrollRect.ScrollableHeight() <= 0f)
+            {
+                return;
+            }
+
+            Canvas.ForceUpdateCanvases();
+
+            var viewport = scrollRect.viewport.rect;
+            var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(scrollRect.viewport, target);
+
+            float overflow;
+            if (bounds.max.y > viewport.yMax)
+            {
+                overflow = bounds.max.y - viewport.yMax;
+            }
+            else if (bounds.min.y < viewport.yMin)
+            {
+                overflow = bounds.min.y - viewport.yMin;
+            }
+            else
+            {
+                return;
+            }
+
+            var content = scrollRect.content;
+            float y = Mathf.Clamp(content.anchoredPosition.y - overflow, 0f, scrollRect.ScrollableHeight());
+            content.anchoredPosition = new Vector2(content.anchoredPosition.x, y);
+        }
     }
 }

@@ -4,9 +4,11 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using YARG.Core;
 using YARG.Core.Game;
+using YARG.Core.Input;
 using YARG.Localization;
 using YARG.Menu.Data;
 using YARG.Menu.Dialogs;
+using YARG.Menu.Navigation;
 using YARG.Player;
 using YARG.Menu.MusicLibrary;
 
@@ -14,6 +16,8 @@ namespace YARG.Menu.Persistent
 {
     public class DialogManager : MonoSingleton<DialogManager>
     {
+        private const float CONFIRM_DELETE_HOLD_SECONDS = 3f;
+
         [SerializeField]
         private Transform _dialogContainer;
 
@@ -205,6 +209,18 @@ namespace YARG.Menu.Persistent
             dialog.ClearButtons();
             dialog.AddDialogButton("Menu.Common.Cancel", MenuData.Colors.BrightButton, ClearDialog);
             dialog.AddDialogButton("Menu.Common.Delete", MenuData.Colors.CancelButton, () => _currentDialog.Submit());
+
+            // Typing the name can be impossible with only a controller, so a long hold stands in for it: like
+            // the typed name, it can't happen by accident or by mashing through the dialog
+            dialog.AddNavigationEntries(
+                new NavigationScheme.Entry(MenuAction.Red, "Menu.Common.Cancel", ClearDialog),
+                new NavigationScheme.Entry(MenuAction.Blue, "Menu.Dialog.ConfirmDelete.HoldToDelete", null,
+                    onHoldHandler: () =>
+                    {
+                        deleteAction?.Invoke();
+                        ClearDialog();
+                    },
+                    holdSeconds: CONFIRM_DELETE_HOLD_SECONDS));
 
             return dialog;
         }
