@@ -43,9 +43,22 @@ namespace YARG.Menu.Dialogs
                     ctx => NavigationGroup.SelectPrevious(ctx.IsRepeat)),
                 new NavigationScheme.Entry(MenuAction.Down, "Menu.Common.Down",
                     ctx => NavigationGroup.SelectNext(ctx.IsRepeat)),
-                new NavigationScheme.Entry(MenuAction.Green, "Menu.Common.Confirm",
-                    () => NavigationGroup.ConfirmSelection()),
+                new NavigationScheme.Entry(MenuAction.Green, "Menu.Common.Confirm", ConfirmOrSelectFirst),
             }, null);
+        }
+
+        // Buttons are added after OnEnable, so nothing is selected when the dialog opens. Selecting
+        // first, rather than confirming the first button, keeps a press from triggering an option
+        // the player never saw highlighted.
+        private void ConfirmOrSelectFirst()
+        {
+            if (NavigationGroup.SelectedBehaviour == null)
+            {
+                NavigationGroup.SelectFirst(SelectionOrigin.Navigation);
+                return;
+            }
+
+            NavigationGroup.ConfirmSelection();
         }
 
         private void OnDisable()
