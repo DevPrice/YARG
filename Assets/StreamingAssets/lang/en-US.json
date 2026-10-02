@@ -1952,6 +1952,10 @@
                 "Name": "Wrap-Around Navigation",
                 "Description": "Allow menus to jump to the bottom of a list when scrolling past the top, or jump to the top of a list when scrolling past the bottom."
             },
+            "GamepadCursor": {
+                "Name": "Gamepad Cursor",
+                "Description": "Click the left stick on a gamepad to show a mouse cursor for screens that need one. Move it with the left stick, click with A, right-click with X and scroll with the right stick. Click the left stick again or press B to hide it. Menu navigation is paused while the cursor is shown."
+            },
             "ReduceNoteSpeedByDifficulty": {
                 "Name": "Reduce Note Speed by Difficulty",
                 "Description": "Reduces the note speed if playing on a lower difficulty than Expert. The specified note speed is applied to Expert, and lower difficulties receive a reduction in speed. This setting does not affect vocal tracks."
