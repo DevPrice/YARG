@@ -13,6 +13,7 @@ using YARG.Helpers;
 using YARG.Helpers.Extensions;
 using YARG.Localization;
 using YARG.Menu.MusicLibrary;
+using YARG.Menu.Persistent;
 using YARG.Player;
 using YARG.Playlists;
 using YARG.Scores;
@@ -152,7 +153,8 @@ namespace YARG.Song
 #nullable disable
         {
             var directories = new List<string>(SettingsManager.Settings.SongFolders);
-            foreach (string networkFolder in SmbNetworkFolders.Register(SettingsManager.Settings.NetworkSongFolders))
+            var networkFolders = SmbNetworkFolders.Register(SettingsManager.Settings.NetworkSongFolders);
+            foreach (string networkFolder in networkFolders)
             {
                 if (!directories.Contains(networkFolder))
                 {
@@ -169,13 +171,27 @@ namespace YARG.Song
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var previousSongCache = _songCache;
             SongCache refreshedSongCache = null;
+            List<NetworkFolderCheck> offlineFolders = null;
             var task = UniTask.RunOnThreadPool(() =>
             {
-                refreshedSongCache = CacheHandler.RunScan(quick,
+                bool scanQuick = quick;
+                if (networkFolders.Count > 0)
+                {
+                    offlineFolders = SmbNetworkFolders.ExcludeOffline(directories, networkFolders);
+                    if (offlineFolders.Count > 0 && !quick)
+                    {
+                        YargLogger.LogInfo("Running a quick scan instead of a full scan to keep offline network songs");
+                        scanQuick = true;
+                    }
+                }
+
+                SongCache Scan() => CacheHandler.RunScan(scanQuick,
                     PathHelper.SongCachePath,
                     PathHelper.BadSongsPath,
                     SettingsManager.Settings.UseFullDirectoryForPlaylists.Value,
                     directories);
+
+                refreshedSongCache = networkFolders.Count > 0 ? SmbNetworkFolders.RunScan(Scan) : Scan();
             });
 
             while (task.Status == UniTaskStatus.Pending)
@@ -208,6 +224,14 @@ namespace YARG.Song
             stopwatch.Stop();
 
             YargLogger.LogFormatInfo("Scan time: {0}s", stopwatch.Elapsed.TotalSeconds);
+            if (offlineFolders != null)
+            {
+                string toastKey = quick ? "Menu.Toast.NetworkFolderOffline" : "Menu.Toast.NetworkFolderOfflineQuickScan";
+                foreach (var offline in offlineFolders)
+                {
+                    ToastManager.ToastWarning(() => Localize.KeyFormat(toastKey, offline.Folder, offline.Detail));
+                }
+            }
             MusicLibraryMenu.SetReload(MusicLibraryReloadState.Full);
             SongSources.LoadSprites(context);
         }

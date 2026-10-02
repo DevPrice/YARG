@@ -139,6 +139,11 @@ namespace YARG.Settings
             // UNC folders read through the in-process SMB client instead of the OS
             public List<string> NetworkSongFolders = new();
 
+            public void AddNetworkFolder()
+            {
+                NetworkFolderPrompt.Add();
+            }
+
             public bool ShowAntiPiracyDialog = true;
             public bool ShowEngineInconsistencyDialog = true;
             public bool ShowExperimentalWarningDialog = true;

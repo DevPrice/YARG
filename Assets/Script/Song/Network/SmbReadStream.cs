@@ -15,6 +15,10 @@ namespace YARG.Song.Network
         public const int MIN_READ_AHEAD = 64 * 1024;
         public const int MAX_READ_AHEAD = 1024 * 1024;
 
+        // Container formats alternate between a table and the data it describes (STFS reads a hash block before
+        // each run of data blocks), which would make a single read-ahead buffer refetch on every switch.
+        private const int WINDOW_COUNT = 4;
+
         private readonly SmbServer _server;
         private readonly SmbSession _session;
         private readonly string _share;
@@ -26,9 +30,9 @@ namespace YARG.Song.Network
         private object _handle;
         private int _handleGeneration;
 
-        private readonly byte[] _buffer;
-        private long _bufferStart;
-        private int _bufferCount;
+        private readonly int _windowSize;
+        private readonly Window[] _windows = new Window[WINDOW_COUNT];
+        private long _useClock;
 
         private long _position;
         private bool _disposed;
@@ -44,7 +48,20 @@ namespace YARG.Song.Network
             _handle = handle;
             _handleGeneration = generation;
             _length = length;
-            _buffer = new byte[Math.Clamp(bufferSize, MIN_READ_AHEAD, MAX_READ_AHEAD)];
+            _windowSize = Math.Clamp(bufferSize, MIN_READ_AHEAD, MAX_READ_AHEAD);
+        }
+
+        private sealed class Window
+        {
+            public readonly byte[] Data;
+            public long Start;
+            public int Count;
+            public long LastUse;
+
+            public Window(int size)
+            {
+                Data = new byte[size];
+            }
         }
 
         /// <exception cref="FileNotFoundException"/>
@@ -149,18 +166,19 @@ namespace YARG.Song.Network
                 int total = 0;
                 while (total < count)
                 {
-                    long bufferOffset = _position - _bufferStart;
-                    if (bufferOffset >= 0 && bufferOffset < _bufferCount)
+                    var window = FindWindow(_position);
+                    if (window != null)
                     {
-                        int copy = (int) Math.Min(count - total, _bufferCount - bufferOffset);
-                        Buffer.BlockCopy(_buffer, (int) bufferOffset, buffer, offset + total, copy);
+                        int windowOffset = (int) (_position - window.Start);
+                        int copy = Math.Min(count - total, window.Count - windowOffset);
+                        Buffer.BlockCopy(window.Data, windowOffset, buffer, offset + total, copy);
                         total += copy;
                         _position += copy;
                         continue;
                     }
 
                     int remaining = count - total;
-                    if (remaining >= _buffer.Length)
+                    if (remaining >= _windowSize)
                     {
                         int read = ReadRemote(_position, buffer, offset + total, remaining);
                         total += read;
@@ -172,9 +190,10 @@ namespace YARG.Song.Network
                         continue;
                     }
 
-                    _bufferStart = _position;
-                    _bufferCount = ReadRemote(_position, _buffer, 0, (int) Math.Min(_buffer.Length, _length - _position));
-                    if (_bufferCount == 0)
+                    window = ClaimWindow();
+                    window.Start = _position;
+                    window.Count = ReadRemote(_position, window.Data, 0, (int) Math.Min(_windowSize, _length - _position));
+                    if (window.Count == 0)
                     {
                         break;
                     }
@@ -234,6 +253,45 @@ namespace YARG.Song.Network
                 CloseHandle();
             }
             base.Dispose(disposing);
+        }
+
+        private Window FindWindow(long position)
+        {
+            foreach (var window in _windows)
+            {
+                if (window != null && position >= window.Start && position - window.Start < window.Count)
+                {
+                    window.LastUse = ++_useClock;
+                    return window;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// An unallocated slot while there is one, else the least recently used window.
+        /// </summary>
+        private Window ClaimWindow()
+        {
+            int victim = 0;
+            for (int i = 0; i < _windows.Length; i++)
+            {
+                if (_windows[i] == null)
+                {
+                    victim = i;
+                    _windows[i] = new Window(_windowSize);
+                    break;
+                }
+                if (_windows[i].LastUse < _windows[victim].LastUse)
+                {
+                    victim = i;
+                }
+            }
+
+            var window = _windows[victim];
+            window.Count = 0;
+            window.LastUse = ++_useClock;
+            return window;
         }
 
         /// <returns>Bytes read; fewer than <paramref name="count"/> only at the end of the file</returns>

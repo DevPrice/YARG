@@ -7,6 +7,7 @@ using UnityEngine.UI;
 using YARG.Core;
 using YARG.Core.Extensions;
 using YARG.Core.Input;
+using YARG.Core.IO;
 using YARG.Core.Song;
 using YARG.Helpers;
 using YARG.Helpers.Extensions;
@@ -355,7 +356,9 @@ namespace YARG.Menu.MusicLibrary
             {
                 var song = songViewType.SongEntry;
 
-                if (PlatformFeatures.CanOpenFileExplorer)
+                // The OS file explorer can't see folders that only the in-process SMB client reaches.
+                if (PlatformFeatures.CanOpenFileExplorer &&
+                    YARGFileSystem.Resolve(song.ActualLocation) == LocalFileSystem.Instance)
                 {
                     CreateItem("ViewSongFolder", () =>
                     {
