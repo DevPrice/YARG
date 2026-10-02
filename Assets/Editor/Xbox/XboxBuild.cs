@@ -35,6 +35,7 @@ namespace YARG.Editor.Xbox
             PlayerSettings.WSACapability.InternetClientServer,
             PlayerSettings.WSACapability.PrivateNetworkClientServer,
             PlayerSettings.WSACapability.Microphone,
+            PlayerSettings.WSACapability.RemovableStorage,
         };
 
         public static void Configure()
