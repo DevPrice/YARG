@@ -74,7 +74,10 @@ function Invoke-Unity([string]$method, [string]$logName, [string]$buildTarget) {
         '-xboxOutput', "`"$unityOut`"")
     if ($PackageVersion) { $unityArgs += @('-xboxVersion', $PackageVersion) }
     Write-Host "Unity $method (log: $log)"
-    $p = Start-Process -FilePath $Unity -Wait -PassThru -NoNewWindow -ArgumentList $unityArgs
+    # Not Start-Process -Wait: that also waits for Unity's descendants, and the IL2CPP link can leave
+    # VS telemetry (vctip.exe) running long after Unity exits, which hangs the build.
+    $p = Start-Process -FilePath $Unity -PassThru -NoNewWindow -ArgumentList $unityArgs
+    $p.WaitForExit()
     if ($p.ExitCode -ne 0) { throw "Unity $method failed with exit code $($p.ExitCode); see $log" }
 }
 
