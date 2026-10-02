@@ -51,6 +51,11 @@ namespace YARG.Menu.Settings
         /// </summary>
         public Transform PreviewContainerUI => _previewContainerUI;
 
+        /// <summary>
+        /// The navigation group of the settings list, which a tab rebuilds in the order its rows are spawned.
+        /// </summary>
+        public NavigationGroup SettingsNavGroup => _settingsNavGroup;
+
         [Space]
         [SerializeField]
         private TextMeshProUGUI _settingName;

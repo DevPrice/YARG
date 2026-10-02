@@ -75,6 +75,11 @@ namespace YARG.Menu.Settings
             }
         }
 
+        private void Awake()
+        {
+            SongManagerHeader.AddButtonsToNavigation(gameObject);
+        }
+
         public void Remove()
         {
             // Remove the element
