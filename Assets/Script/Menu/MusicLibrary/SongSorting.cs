@@ -180,14 +180,15 @@ namespace YARG.Menu.MusicLibrary
             }
         }
 
-        private static readonly unsafe delegate*<SongCache, SortedSongs, void>[] SORTERS =
+        // Delegates, not function pointers: IL2CPP (Unity 6000.3) crashes converting a static array of delegate*.
+        private static readonly System.Action<SongCache, SortedSongs>[] SORTERS =
         {
-            &SortByTitle,       &SortByArtist,   &SortByAlbum,  &SortByGenre,       &SortBySubgenre,   &SortByYear,
-            &SortByCharter,     &SortByPlaylist, &SortBySource, &SortByArtistAlbum, &SortByLength,     &SortByDateAdded,
-            &SortByInstruments, &SortByAggregateDrums
+            SortByTitle,       SortByArtist,   SortByAlbum,  SortByGenre,       SortBySubgenre,   SortByYear,
+            SortByCharter,     SortByPlaylist, SortBySource, SortByArtistAlbum, SortByLength,     SortByDateAdded,
+            SortByInstruments, SortByAggregateDrums
         };
 
-        internal static unsafe void SortEntries(SongCache cache, SortedSongs sorted)
+        internal static void SortEntries(SongCache cache, SortedSongs sorted)
         {
             sorted.Clear();
             Parallel.For(0, SORTERS.Length, i => SORTERS[i](cache, sorted));
