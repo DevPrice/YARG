@@ -1,4 +1,7 @@
-﻿using UnityEngine;
+﻿using System;
+using TMPro;
+using UnityEngine;
+using YARG.Core.Input;
 using YARG.Menu.Navigation;
 using YARG.Settings.Types;
 
@@ -20,6 +23,8 @@ namespace YARG.Menu.Settings.Visuals
         [Space]
         [SerializeField]
         private DurationInputField _constantField;
+
+        private InputFieldCursor _cursor;
 
         protected override void OnSettingInit()
         {
@@ -53,10 +58,46 @@ namespace YARG.Menu.Settings.Visuals
 
         public override NavigationScheme GetNavigationScheme()
         {
+            _cursor?.Clear();
+            _cursor = Setting.Value.IsDynamic
+                ? new InputFieldCursor(_minField.GetComponent<TMP_InputField>(),
+                    _maxField.GetComponent<TMP_InputField>())
+                : new InputFieldCursor(_constantField.GetComponent<TMP_InputField>());
+
             return new NavigationScheme(new()
             {
-                NavigateFinish
+                NavigateFinish,
+                new NavigationScheme.Entry(MenuAction.Up, "Menu.Common.Increase", () => AdjustWindow(1)),
+                new NavigationScheme.Entry(MenuAction.Down, "Menu.Common.Decrease", () => AdjustWindow(-1)),
+                new NavigationScheme.Entry(MenuAction.Left, "Menu.Common.Previous", () => _cursor.Move(-1)),
+                new NavigationScheme.Entry(MenuAction.Right, "Menu.Common.Next", () => _cursor.Move(1)),
             }, true);
+        }
+
+        public override void OnNavigationSchemePopped()
+        {
+            _cursor?.Clear();
+            _cursor = null;
+        }
+
+        private void AdjustWindow(int milliseconds)
+        {
+            double step = milliseconds * DurationInputField.GetMultiplierForUnit(DurationInputField.Unit.Milliseconds);
+
+            if (!Setting.Value.IsDynamic)
+            {
+                _constantField.Duration += step;
+            }
+            else if (_cursor.Index == 0)
+            {
+                _minField.Duration = Math.Min(_minField.Duration + step, _maxField.Duration);
+            }
+            else
+            {
+                _maxField.Duration = Math.Max(_maxField.Duration + step, _minField.Duration);
+            }
+
+            OnTextFieldChange();
         }
 
         public void OnTextFieldChange()
