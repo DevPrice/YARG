@@ -24,6 +24,9 @@ namespace YARG.Helpers
             }
 
             _fileBrowser.gameObject.SetActive(true);
+#if UNITY_WSA && !UNITY_EDITOR
+            Platform.Xbox.XboxFileBrowserQuickLinks.Add();
+#endif
 
             var inputBlocker = Navigator.Instance?.PushInputBlocker();
 
@@ -71,6 +74,9 @@ namespace YARG.Helpers
             }
 
             _fileBrowser.gameObject.SetActive(true);
+#if UNITY_WSA && !UNITY_EDITOR
+            Platform.Xbox.XboxFileBrowserQuickLinks.Add();
+#endif
 
             if (extensions.Length == 0 || extensions.All(string.IsNullOrEmpty))
             {
@@ -129,6 +135,9 @@ namespace YARG.Helpers
             }
 
             _fileBrowser.gameObject.SetActive(true);
+#if UNITY_WSA && !UNITY_EDITOR
+            Platform.Xbox.XboxFileBrowserQuickLinks.Add();
+#endif
 
             if (string.IsNullOrEmpty(extension))
             {

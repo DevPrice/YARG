@@ -1110,7 +1110,7 @@ namespace YARG.Settings
             private static void FullscreenModeCallback(FullScreenMode value)
             {
                 // Unity saves this information automatically
-                if (!IsInitialized)
+                if (!IsInitialized || !PlatformFeatures.SupportsWindowModes)
                 {
                     return;
                 }
