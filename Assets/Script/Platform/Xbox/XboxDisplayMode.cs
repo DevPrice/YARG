@@ -1,9 +1,7 @@
 ﻿#if ENABLE_WINMD_SUPPORT
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Text;
-using UnityEngine;
 using Windows.ApplicationModel.Core;
 using Windows.Foundation;
 using Windows.Graphics.Display.Core;
@@ -36,7 +34,6 @@ namespace YARG.Platform.Xbox
         // we requested; it's captured again whenever the console has changed the mode since.
         private static HdmiDisplayMode _systemMode;
         private static HdmiDisplayMode _requestedMode;
-        private static bool _probedFrameRate;
 
         private static void ApplyOnUIThread()
         {
@@ -104,12 +101,6 @@ namespace YARG.Platform.Xbox
                 if (status == AsyncStatus.Completed && operation.GetResults())
                 {
                     YargLogger.LogFormatInfo<string, string>("Display mode switched from {0} to {1}.", fromText, toText);
-                    if (!_probedFrameRate)
-                    {
-                        _probedFrameRate = true;
-                        double hz = mode.RefreshRate;
-                        UnityEngine.WSA.Application.InvokeOnAppThread(() => FrameRateProbe.Run(hz), false);
-                    }
                 }
                 else
                 {
@@ -209,76 +200,6 @@ namespace YARG.Platform.Xbox
         private static string Describe(HdmiDisplayMode mode) =>
             $"{mode.ResolutionWidthInRawPixels}x{mode.ResolutionHeightInRawPixels} @ {mode.RefreshRate:0.###} Hz " +
             $"{mode.ColorSpace} {mode.PixelEncoding} {mode.BitsPerPixel} bpp";
-
-        /// <summary>
-        /// Diagnostic for the first mode switch: logs Unity's frame times at the new refresh rate as left, after
-        /// re-applying VSync, and after re-applying the resolution with the new refresh rate. On 1.0.293.146 the
-        /// output switched to 119.88 Hz but VSync still held the game at 60 fps.
-        /// </summary>
-        private sealed class FrameRateProbe : MonoBehaviour
-        {
-            private const float MEASURE_SECONDS = 3f;
-
-            private double _hz;
-
-            public static void Run(double hz)
-            {
-                var probe = new GameObject(nameof(FrameRateProbe)).AddComponent<FrameRateProbe>();
-                DontDestroyOnLoad(probe.gameObject);
-                probe._hz = hz;
-                probe.StartCoroutine(probe.Measure());
-            }
-
-            private IEnumerator Measure()
-            {
-                yield return new WaitForSecondsRealtime(1f);
-                yield return Sample("as left");
-
-                int vSyncCount = QualitySettings.vSyncCount;
-                QualitySettings.vSyncCount = 0;
-                yield return null;
-                QualitySettings.vSyncCount = vSyncCount;
-                yield return new WaitForSecondsRealtime(0.5f);
-                yield return Sample("after re-applying VSync");
-
-                var refreshRate = new RefreshRate
-                {
-                    numerator = (uint) Math.Round(_hz * 1000),
-                    denominator = 1000,
-                };
-                Screen.SetResolution(Screen.width, Screen.height, Screen.fullScreenMode, refreshRate);
-                yield return new WaitForSecondsRealtime(1f);
-                yield return Sample("after re-applying the resolution");
-
-                Destroy(gameObject);
-            }
-
-            private IEnumerator Sample(string step)
-            {
-                int frames = 0;
-                int fastFrames = 0;
-                float elapsed = 0f;
-                while (elapsed < MEASURE_SECONDS)
-                {
-                    yield return null;
-                    float delta = Time.unscaledDeltaTime;
-                    elapsed += delta;
-                    frames++;
-                    // Anything well under a 60 Hz frame (16.7 ms) was presented at the faster rate
-                    if (delta < 0.012f)
-                    {
-                        fastFrames++;
-                    }
-                }
-
-                var screen = Screen.currentResolution;
-                YargLogger.LogFormatInfo<string, float, int, int, int, int, int, double>(
-                    "Frame-rate probe, {0}: {1:0.0} fps, {2}/{3} frames under 12 ms, vSyncCount {4}, " +
-                    "Unity screen {5}x{6} @ {7:0.###} Hz.",
-                    step, frames / elapsed, fastFrames, frames, QualitySettings.vSyncCount,
-                    screen.width, screen.height, screen.refreshRateRatio.value);
-            }
-        }
 #endif
     }
 }
