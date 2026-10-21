@@ -58,6 +58,7 @@ namespace YARG.Input
         private static HashSet<InputDevice> _registeredDevices = new();
 
         private static DefaultKeyboardMenuBindings _defaultKeyboardMenuBindings;
+        private static DefaultGamepadMenuBindings _defaultGamepadMenuBindings;
 
         // We do this song and dance of tracking focus changes manually rather than setting
         // InputSettings.backgroundBehavior to IgnoreFocus, so that input is still (largely) disabled when unfocused
@@ -80,6 +81,7 @@ namespace YARG.Input
             InputSystem.onDeviceChange += OnDeviceChange;
 
             _defaultKeyboardMenuBindings = new DefaultKeyboardMenuBindings();
+            _defaultGamepadMenuBindings = new DefaultGamepadMenuBindings();
 
             // Notify of all current devices
             ToastManager.ToastInformation("Devices found: " + (Microphone.devices.Length + InputSystem.devices.Count));
@@ -109,6 +111,8 @@ namespace YARG.Input
         {
             _defaultKeyboardMenuBindings?.Dispose();
             _defaultKeyboardMenuBindings = null;
+            _defaultGamepadMenuBindings?.Dispose();
+            _defaultGamepadMenuBindings = null;
 
             InputSystem.onEvent -= OnEvent;
 
