@@ -82,7 +82,7 @@ namespace YARG.Editor.Xbox
                 PlayerSettings.GetScriptingDefineSymbols(wsa),
                 PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.Standalone)));
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.WSAPlayer, false);
-            PlayerSettings.SetGraphicsAPIs(BuildTarget.WSAPlayer, new[] { GraphicsDeviceType.Direct3D11 });
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.WSAPlayer, new[] { GraphicsDeviceType.Direct3D12 });
 
             PlayerSettings.WSA.packageName = PACKAGE_NAME;
             PlayerSettings.WSA.applicationDescription = PRODUCT_NAME;
