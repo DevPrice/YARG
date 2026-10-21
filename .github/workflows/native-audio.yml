@@ -38,6 +38,27 @@ jobs:
           path: ${{ runner.temp }}/yarg-audio-package
           if-no-files-found: error
 
+  windows-store:
+    name: Windows Store (UWP) x64
+    # No committed UWP plugin exists to verify against, and the app-container
+    # CRT cannot load in a desktop test process, so this only builds.
+    runs-on: windows-2022
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Build plugin
+        run: >
+          dotnet run --project scripts/NativeBuild --
+          build --target windows-store --output "$env:RUNNER_TEMP/yarg-audio-package"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yarg-audio-windows-store-x64
+          path: ${{ runner.temp }}/yarg-audio-package
+          if-no-files-found: error
+
   linux:
     name: Linux x64
     # Build inside an Ubuntu 20.04 container (glibc 2.31, gcc 11) to keep the

@@ -147,7 +147,7 @@ namespace YARG.Audio.BASS
 
                     if (channel.VolumeMatrix != null)
                     {
-                        BassX.Require(BassMix.ChannelSetMatrix(channel.Handle, channel.VolumeMatrix),
+                        BassX.Require(BassMatrixImports.ChannelSetMatrix(channel.Handle, channel.VolumeMatrix),
                             $"set volume matrix for channel {channel.Handle}");
                     }
                 }

@@ -2,6 +2,10 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP) && \
+    !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#define YARG_AUDIO_WINDOWS_APP 1
+#endif
 #else
 #include <dlfcn.h>
 #if defined(__linux__)
@@ -39,6 +43,21 @@ int findLoadedModule(dl_phdr_info* info, std::size_t, void* data) noexcept {
 } // namespace
 #endif
 
+#if defined(YARG_AUDIO_WINDOWS_APP)
+namespace {
+
+HMODULE loadPackagedLibrary(const char* name) noexcept {
+    wchar_t wideName[MAX_PATH];
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1,
+            wideName, MAX_PATH) == 0) {
+        return nullptr;
+    }
+    return LoadPackagedLibrary(wideName, 0);
+}
+
+} // namespace
+#endif
+
 PlatformDynamicLibrary::~PlatformDynamicLibrary() {
     reset();
 }
@@ -59,7 +78,13 @@ PlatformDynamicLibrary& PlatformDynamicLibrary::operator=(
 
 PlatformDynamicLibrary PlatformDynamicLibrary::findLoaded(const char* name) noexcept {
     if (!name) return {};
-#if defined(_WIN32)
+#if defined(YARG_AUDIO_WINDOWS_APP)
+    // GetModuleHandle is desktop-only before SDK 10.0.26100. LoadPackagedLibrary
+    // returns the already-loaded module and adds a reference, so own it to drop
+    // that reference again. It resolves only from the package graph, the same
+    // single copy IL2CPP loads, so it cannot bind a second BASS instance.
+    return {reinterpret_cast<void*>(loadPackagedLibrary(name)), true};
+#elif defined(_WIN32)
     return {reinterpret_cast<void*>(GetModuleHandleA(name)), false};
 #elif defined(RTLD_NOLOAD)
     // Keep loaded-module handles for process lifetime. BASS function tables do the same.
@@ -79,7 +104,9 @@ PlatformDynamicLibrary PlatformDynamicLibrary::findLoaded(const char* name) noex
 
 PlatformDynamicLibrary PlatformDynamicLibrary::load(const char* name) noexcept {
     if (!name) return {};
-#if defined(_WIN32)
+#if defined(YARG_AUDIO_WINDOWS_APP)
+    return {reinterpret_cast<void*>(loadPackagedLibrary(name)), true};
+#elif defined(_WIN32)
     return {reinterpret_cast<void*>(LoadLibraryA(name)), true};
 #else
     return {dlopen(name, RTLD_NOW | RTLD_LOCAL), true};
