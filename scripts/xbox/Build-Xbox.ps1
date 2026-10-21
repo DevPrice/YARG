@@ -136,24 +136,6 @@ if (-not $SkipMsBuild) {
     $xml.Package.Identity.Version = "$PackageVersion"
     $xml.Save($manifest.FullName)
 
-    # Unity may keep an existing App.cpp too, so the patch has to be idempotent.
-    $appCpp = Get-ChildItem $unityOut -Recurse -Filter 'App.cpp' |
-        Where-Object FullName -notmatch '\\(bin|obj|AppPackages)\\' | Select-Object -First 1
-    if (-not $appCpp) { throw "No App.cpp under $unityOut" }
-    $source = Get-Content -Raw $appCpp.FullName
-    if ($source -notmatch 'YargDisableVBlankVirtualization') {
-        $header = Join-Path $PSScriptRoot 'DisableVBlankVirtualization.h'
-        $patched = $source -replace '(#include "UnityGenerated\.h"\r?\n)', "`$1#include `"$header`"`r`n"
-        $patched = $patched -replace '(void App::Initialize\(CoreApplicationView\^ applicationView\)\r?\n\{\r?\n)',
-            "`$1    YargDisableVBlankVirtualization();`r`n"
-        if ($patched -notmatch '#include ".*DisableVBlankVirtualization\.h"' -or
-            $patched -notmatch 'YargDisableVBlankVirtualization\(\);') {
-            throw "Unity's App.cpp changed shape; couldn't add the v-blank virtualization call to $($appCpp.FullName)"
-        }
-        Set-Content -NoNewline -Path $appCpp.FullName -Value $patched
-        Write-Host "Patched $($appCpp.Name) to call DXGIDisableVBlankVirtualization"
-    }
-
     $msbuild = Join-Path $vsPath 'MSBuild\Current\Bin\amd64\MSBuild.exe'
     if (-not (Test-Path $msbuild)) { throw "$msbuild not found" }
     $msbuildLog = Join-Path $logs 'msbuild.log'
