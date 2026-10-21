@@ -1,31 +1,18 @@
 ﻿using System;
 using System.IO;
 using YARG.Core.Logging;
-using YARG.Helpers;
 using YARG.Settings;
 
 namespace YARG.Platform.Xbox
 {
     /// <summary>
-    /// Registers LocalState\Songs as a song folder on a fresh install, so songs copied there are found
-    /// without browsing for the folder first.
+    /// Registers LocalState\Songs as a song folder, so songs copied there are found without browsing for the
+    /// folder first.
     /// </summary>
     public static class XboxSongsFolder
     {
-        /// <summary>
-        /// Call right after <see cref="SettingsManager.LoadSettings"/>, before anything can save settings.
-        /// </summary>
-        public static void RegisterOnFirstRun()
+        public static void Register()
         {
-            // settings.json is only written by SettingsManager.SaveSettings, so its absence marks a first run
-            // or a settings reset. Keeping the "already registered" state in the same file as SongFolders means
-            // the two can't disagree: the save that records the user removing the folder also ends the first run,
-            // and a run that never saved will simply register it again.
-            if (File.Exists(Path.Combine(PathHelper.PersistentDataPath, "settings.json")))
-            {
-                return;
-            }
-
             string folder = XboxFileBrowserQuickLinks.SongsFolder;
             try
             {

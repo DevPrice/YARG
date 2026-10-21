@@ -106,7 +106,7 @@ namespace YARG
         {
             SettingsManager.LoadSettings();
 #if UNITY_WSA && !UNITY_EDITOR
-            Platform.Xbox.XboxSongsFolder.RegisterOnFirstRun();
+            Platform.Xbox.XboxFirstRunDefaults.Apply();
 #endif
             InputManager.Initialize();
 
