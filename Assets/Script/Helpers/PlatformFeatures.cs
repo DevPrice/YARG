@@ -48,6 +48,11 @@
         /// </summary>
         public static bool SupportsYargroundBundles => !IsWindowsStorePlayer;
 
+        /// <summary>
+        /// Whether the app chooses the HDMI output mode, as UWP apps on Xbox can.
+        /// </summary>
+        public static bool SupportsDisplayModePreference => IsWindowsStorePlayer;
+
         // Unlike UNITY_STANDALONE_WIN alone, this excludes a non-Windows editor targeting Windows,
         // where the Windows-only native libraries are not loaded.
         private static bool IsWindowsDesktop =>

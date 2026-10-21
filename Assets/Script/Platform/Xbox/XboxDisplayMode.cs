@@ -1,5 +1,10 @@
 ﻿#if ENABLE_WINMD_SUPPORT
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+using Windows.ApplicationModel.Core;
 using Windows.Foundation;
 using Windows.Graphics.Display.Core;
 using YARG.Core.Logging;
@@ -8,79 +13,270 @@ using YARG.Core.Logging;
 namespace YARG.Platform.Xbox
 {
     /// <summary>
-    /// Switches the console's HDMI output to the fastest refresh rate it offers at the current resolution.
-    /// A UWP app on Xbox gets a 60 Hz mode unless it asks for another, even when the dashboard runs at 120 Hz,
-    /// so VSync would cap the game at 60 fps.
+    /// Chooses the console's HDMI output mode by <see cref="DisplayModePreference"/>. A UWP app on Xbox gets the
+    /// console's 60 Hz mode unless it asks for another, even when the dashboard runs at 120 Hz. The choice is
+    /// made again on resume and when the TV's modes change, since the console may put its own mode back.
     /// </summary>
     public static class XboxDisplayMode
     {
-        public static void RequestHighestRefreshRate()
+        public static void Apply(DisplayModePreference preference)
         {
 #if ENABLE_WINMD_SUPPORT
+            _preference = preference;
             // HdmiDisplayInformation belongs to the app's view, so it only works on the UI thread
-            UnityEngine.WSA.Application.InvokeOnUIThread(RequestOnUIThread, false);
+            UnityEngine.WSA.Application.InvokeOnUIThread(ApplyOnUIThread, false);
 #endif
         }
 
 #if ENABLE_WINMD_SUPPORT
-        private static void RequestOnUIThread()
+        private static DisplayModePreference _preference;
+        private static HdmiDisplayInformation _hdmi;
+
+        // The console's own mode, which caps the resolution we pick. Only valid while the current mode isn't one
+        // we requested; it's captured again whenever the console has changed the mode since.
+        private static HdmiDisplayMode _systemMode;
+        private static HdmiDisplayMode _requestedMode;
+        private static bool _probedFrameRate;
+
+        private static void ApplyOnUIThread()
         {
             try
             {
-                var hdmi = HdmiDisplayInformation.GetForCurrentView();
-                if (hdmi == null)
+                if (_hdmi == null)
                 {
-                    YargLogger.LogInfo("No HDMI display information; keeping the current display mode.");
+                    _hdmi = HdmiDisplayInformation.GetForCurrentView();
+                    if (_hdmi == null)
+                    {
+                        YargLogger.LogInfo("No HDMI display information; keeping the console's display mode.");
+                        return;
+                    }
+
+                    _hdmi.DisplayModesChanged += (sender, args) =>
+                        UnityEngine.WSA.Application.InvokeOnUIThread(ApplyOnUIThread, false);
+                    CoreApplication.Resuming += (sender, args) =>
+                        UnityEngine.WSA.Application.InvokeOnUIThread(ApplyOnUIThread, false);
+                }
+
+                var current = _hdmi.GetCurrentDisplayMode();
+                var modes = _hdmi.GetSupportedDisplayModes();
+                if (_requestedMode == null || !current.IsEqual(_requestedMode))
+                {
+                    _systemMode = current;
+                    _requestedMode = null;
+                    LogModes(modes, current);
+                }
+
+                if (_preference == DisplayModePreference.System)
+                {
+                    if (_requestedMode != null)
+                    {
+                        _requestedMode = null;
+                        _ = _hdmi.SetDefaultDisplayModeAsync();
+                        YargLogger.LogFormatInfo<string>("Returning to the console's display mode, {0}.",
+                            Describe(_systemMode));
+                    }
                     return;
                 }
 
-                var current = hdmi.GetCurrentDisplayMode();
-                HdmiDisplayMode fastest = null;
-                foreach (var mode in hdmi.GetSupportedDisplayModes())
+                var chosen = Choose(modes, _systemMode, _preference);
+                if (chosen == null || chosen.IsEqual(current))
                 {
-                    if (mode.ResolutionWidthInRawPixels != current.ResolutionWidthInRawPixels ||
-                        mode.ResolutionHeightInRawPixels != current.ResolutionHeightInRawPixels ||
-                        mode.ColorSpace != current.ColorSpace ||
-                        mode.PixelEncoding != current.PixelEncoding ||
-                        mode.BitsPerPixel != current.BitsPerPixel ||
-                        mode.StereoEnabled)
-                    {
-                        continue;
-                    }
-
-                    if (mode.RefreshRate > (fastest ?? current).RefreshRate)
-                    {
-                        fastest = mode;
-                    }
-                }
-
-                if (fastest == null)
-                {
-                    YargLogger.LogFormatInfo<uint, uint, double>(
-                        "Display mode {0}x{1} at {2} Hz is already the fastest offered at this resolution.",
-                        current.ResolutionWidthInRawPixels, current.ResolutionHeightInRawPixels, current.RefreshRate);
+                    YargLogger.LogFormatInfo<string, DisplayModePreference>("Keeping display mode {0} ({1}).",
+                        Describe(current), _preference);
                     return;
                 }
 
-                double fromHz = current.RefreshRate;
-                double toHz = fastest.RefreshRate;
-                hdmi.RequestSetCurrentDisplayModeAsync(fastest).Completed = (operation, status) =>
-                {
-                    if (status == AsyncStatus.Completed && operation.GetResults())
-                    {
-                        YargLogger.LogFormatInfo<double, double>("Display refresh rate switched from {0} Hz to {1} Hz.",
-                            fromHz, toHz);
-                    }
-                    else
-                    {
-                        YargLogger.LogFormatWarning<double, AsyncStatus>(
-                            "The console refused a {0} Hz display mode ({1}); keeping the current one.", toHz, status);
-                    }
-                };
+                Request(chosen, current);
             }
             catch (Exception e)
             {
-                YargLogger.LogException(e, "Failed to change the display refresh rate.");
+                YargLogger.LogException(e, "Failed to choose the display mode.");
+            }
+        }
+
+        private static void Request(HdmiDisplayMode mode, HdmiDisplayMode from)
+        {
+            string fromText = Describe(from);
+            string toText = Describe(mode);
+            _requestedMode = mode;
+            _hdmi.RequestSetCurrentDisplayModeAsync(mode).Completed = (operation, status) =>
+            {
+                if (status == AsyncStatus.Completed && operation.GetResults())
+                {
+                    YargLogger.LogFormatInfo<string, string>("Display mode switched from {0} to {1}.", fromText, toText);
+                    if (!_probedFrameRate)
+                    {
+                        _probedFrameRate = true;
+                        double hz = mode.RefreshRate;
+                        UnityEngine.WSA.Application.InvokeOnAppThread(() => FrameRateProbe.Run(hz), false);
+                    }
+                }
+                else
+                {
+                    UnityEngine.WSA.Application.InvokeOnUIThread(() => _requestedMode = null, false);
+                    YargLogger.LogFormatWarning<string, AsyncStatus>(
+                        "The console refused display mode {0} ({1}); keeping the current one.", toText, status);
+                }
+            };
+        }
+
+        /// <summary>
+        /// The best SDR mode no larger than the console's own resolution: for <see cref="DisplayModePreference.RefreshRate"/>
+        /// the fastest refresh rate, then the most pixels; for <see cref="DisplayModePreference.Resolution"/> the
+        /// fastest refresh rate at the console's resolution. Ties go to the console's own color format.
+        /// </summary>
+        private static HdmiDisplayMode Choose(IReadOnlyList<HdmiDisplayMode> modes, HdmiDisplayMode system,
+            DisplayModePreference preference)
+        {
+            HdmiDisplayMode best = null;
+            foreach (var mode in modes)
+            {
+                // YARG renders SDR, and an HDR mode would make the console tone-map it
+                if (mode.StereoEnabled || mode.ColorSpace == HdmiDisplayColorSpace.BT2020)
+                {
+                    continue;
+                }
+
+                uint width = mode.ResolutionWidthInRawPixels;
+                uint height = mode.ResolutionHeightInRawPixels;
+                if (width > system.ResolutionWidthInRawPixels || height > system.ResolutionHeightInRawPixels)
+                {
+                    continue;
+                }
+
+                if (preference == DisplayModePreference.Resolution &&
+                    (width != system.ResolutionWidthInRawPixels || height != system.ResolutionHeightInRawPixels))
+                {
+                    continue;
+                }
+
+                if (best == null || IsBetter(mode, best, system))
+                {
+                    best = mode;
+                }
+            }
+
+            return best;
+        }
+
+        private static bool IsBetter(HdmiDisplayMode a, HdmiDisplayMode b, HdmiDisplayMode system)
+        {
+            // Whole hertz, so 1440p at 119.88 Hz still beats 1080p at 120 Hz
+            long hzA = (long) Math.Round(a.RefreshRate);
+            long hzB = (long) Math.Round(b.RefreshRate);
+            if (hzA != hzB)
+            {
+                return hzA > hzB;
+            }
+
+            long pixelsA = (long) a.ResolutionWidthInRawPixels * a.ResolutionHeightInRawPixels;
+            long pixelsB = (long) b.ResolutionWidthInRawPixels * b.ResolutionHeightInRawPixels;
+            if (pixelsA != pixelsB)
+            {
+                return pixelsA > pixelsB;
+            }
+
+            int matchA = FormatMatches(a, system);
+            int matchB = FormatMatches(b, system);
+            if (matchA != matchB)
+            {
+                return matchA > matchB;
+            }
+
+            return a.RefreshRate > b.RefreshRate;
+        }
+
+        private static int FormatMatches(HdmiDisplayMode mode, HdmiDisplayMode system)
+        {
+            int matches = 0;
+            if (mode.ColorSpace == system.ColorSpace) matches++;
+            if (mode.PixelEncoding == system.PixelEncoding) matches++;
+            if (mode.BitsPerPixel == system.BitsPerPixel) matches++;
+            return matches;
+        }
+
+        private static void LogModes(IReadOnlyList<HdmiDisplayMode> modes, HdmiDisplayMode current)
+        {
+            var builder = new StringBuilder();
+            builder.Append("HDMI modes (* = current):");
+            foreach (var mode in modes)
+            {
+                builder.Append("\n  ").Append(mode.IsEqual(current) ? "* " : "  ").Append(Describe(mode));
+            }
+            YargLogger.LogInfo(builder.ToString());
+        }
+
+        private static string Describe(HdmiDisplayMode mode) =>
+            $"{mode.ResolutionWidthInRawPixels}x{mode.ResolutionHeightInRawPixels} @ {mode.RefreshRate:0.###} Hz " +
+            $"{mode.ColorSpace} {mode.PixelEncoding} {mode.BitsPerPixel} bpp";
+
+        /// <summary>
+        /// Diagnostic for the first mode switch: logs Unity's frame times at the new refresh rate as left, after
+        /// re-applying VSync, and after re-applying the resolution with the new refresh rate. On 1.0.293.146 the
+        /// output switched to 119.88 Hz but VSync still held the game at 60 fps.
+        /// </summary>
+        private sealed class FrameRateProbe : MonoBehaviour
+        {
+            private const float MEASURE_SECONDS = 3f;
+
+            private double _hz;
+
+            public static void Run(double hz)
+            {
+                var probe = new GameObject(nameof(FrameRateProbe)).AddComponent<FrameRateProbe>();
+                DontDestroyOnLoad(probe.gameObject);
+                probe._hz = hz;
+                probe.StartCoroutine(probe.Measure());
+            }
+
+            private IEnumerator Measure()
+            {
+                yield return new WaitForSecondsRealtime(1f);
+                yield return Sample("as left");
+
+                int vSyncCount = QualitySettings.vSyncCount;
+                QualitySettings.vSyncCount = 0;
+                yield return null;
+                QualitySettings.vSyncCount = vSyncCount;
+                yield return new WaitForSecondsRealtime(0.5f);
+                yield return Sample("after re-applying VSync");
+
+                var refreshRate = new RefreshRate
+                {
+                    numerator = (uint) Math.Round(_hz * 1000),
+                    denominator = 1000,
+                };
+                Screen.SetResolution(Screen.width, Screen.height, Screen.fullScreenMode, refreshRate);
+                yield return new WaitForSecondsRealtime(1f);
+                yield return Sample("after re-applying the resolution");
+
+                Destroy(gameObject);
+            }
+
+            private IEnumerator Sample(string step)
+            {
+                int frames = 0;
+                int fastFrames = 0;
+                float elapsed = 0f;
+                while (elapsed < MEASURE_SECONDS)
+                {
+                    yield return null;
+                    float delta = Time.unscaledDeltaTime;
+                    elapsed += delta;
+                    frames++;
+                    // Anything well under a 60 Hz frame (16.7 ms) was presented at the faster rate
+                    if (delta < 0.012f)
+                    {
+                        fastFrames++;
+                    }
+                }
+
+                var screen = Screen.currentResolution;
+                YargLogger.LogFormatInfo<string, float, int, int, int, int, int, double>(
+                    "Frame-rate probe, {0}: {1:0.0} fps, {2}/{3} frames under 12 ms, vSyncCount {4}, " +
+                    "Unity screen {5}x{6} @ {7:0.###} Hz.",
+                    step, frames / elapsed, fastFrames, frames, QualitySettings.vSyncCount,
+                    screen.width, screen.height, screen.refreshRateRatio.value);
             }
         }
 #endif
