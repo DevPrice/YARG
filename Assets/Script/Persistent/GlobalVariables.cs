@@ -107,6 +107,7 @@ namespace YARG
             SettingsManager.LoadSettings();
 #if UNITY_WSA && !UNITY_EDITOR
             Platform.Xbox.XboxSongsFolder.RegisterOnFirstRun();
+            Platform.Xbox.XboxDisplayMode.RequestHighestRefreshRate();
 #endif
             InputManager.Initialize();
 
