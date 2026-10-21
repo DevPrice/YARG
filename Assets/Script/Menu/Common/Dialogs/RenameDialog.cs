@@ -39,5 +39,10 @@ namespace YARG.Menu.Dialogs
         {
             _inputField.ActivateInputField();
         }
+
+        public void SetInputText(string text)
+        {
+            _inputField.text = text;
+        }
     }
 }

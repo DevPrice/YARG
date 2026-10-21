@@ -148,6 +148,30 @@ namespace YARG.Song.Network
             return SmbReadStream.Open(GetServer(smb.Server), smb, path, bufferSize);
         }
 
+        /// <summary>
+        /// Opens <paramref name="path"/> as a directory and reports the server's raw answer, where
+        /// <see cref="TryStat"/> folds refusals and absence into "doesn't exist".
+        /// </summary>
+        /// <exception cref="SmbConnectException">The server is unreachable or refused every login</exception>
+        /// <exception cref="IOException">The connection dropped twice</exception>
+        public NTStatus ProbeDirectory(string path)
+        {
+            if (!SmbPath.TryParse(path, out var smb))
+            {
+                return NTStatus.STATUS_OBJECT_PATH_SYNTAX_BAD;
+            }
+
+            return GetServer(smb.Server).Run(null, smb.Share, (store, _) =>
+            {
+                var status = Open(store, smb.Path, OpenKind.Directory, out object handle);
+                if (status == NTStatus.STATUS_SUCCESS)
+                {
+                    store.CloseFile(handle);
+                }
+                return status;
+            }, out _);
+        }
+
         public bool FileExists(string path)
         {
             return TryStat(path, out var stat) && !stat.IsDirectory;

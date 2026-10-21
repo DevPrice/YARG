@@ -57,6 +57,18 @@ namespace YARG.Settings.Metadata
                 }
             }
 
+            for (int i = 0; i < SettingsManager.Settings.NetworkSongFolders.Count; i++)
+            {
+                var go = Object.Instantiate(_songManagerDirectory, settingContainer);
+                go.GetComponent<SettingsDirectory>().SetNetworkIndex(i);
+                foreach (var button in go.GetComponentsInChildren<Button>())
+                {
+                    navGroup.AddNavigatable(RuntimeNavigatable.Attach(button.gameObject, button.onClick.Invoke));
+                }
+            }
+
+            // The section's own metadata (the Add Network Folder row) goes below the folder list
+            base.BuildSettingTab(settingContainer, navGroup);
         }
     }
 }
