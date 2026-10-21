@@ -24,19 +24,18 @@ namespace YARG.Menu.ProfileInfo
         private const float BACK_HOLD_SECONDS = 1.5f;
 
         private EditBindsTab _editBinds;
+        private NavigationGroup _tabsNavGroup;
 
         private void Awake()
         {
             _editBinds = _editBindsTab.GetComponent<EditBindsTab>();
+            _tabsNavGroup = _tabs.GetComponent<NavigationGroup>();
         }
 
         private void OnEnable()
         {
             _tabs.TabChanged += OnTabChanged;
             _tabs.SelectFirstTab();
-
-            var nextTab = _tabs.NavigateNextTab;
-            var previousTab = _tabs.NavigatePreviousTab;
 
             // While binds are shown, the edited player's taps are presses made to test them, so only a
             // hold of Back counts from that player
@@ -46,10 +45,10 @@ namespace YARG.Menu.ProfileInfo
                     ctx => { if (AcceptsTap(ctx)) Back(); },
                     onHoldHandler: _ => { if (!_editBinds.IsCapturingControl) Back(); },
                     holdSeconds: BACK_HOLD_SECONDS),
-                new NavigationScheme.Entry(MenuAction.Right, nextTab.LocalizationKey,
-                    ctx => { if (AcceptsTap(ctx)) nextTab.Invoke(ctx); }),
-                new NavigationScheme.Entry(MenuAction.Left, previousTab.LocalizationKey,
-                    ctx => { if (AcceptsTap(ctx)) previousTab.Invoke(ctx); }),
+                new NavigationScheme.Entry(MenuAction.Right, "Menu.Common.NextTab",
+                    ctx => { if (AcceptsTap(ctx)) _tabsNavGroup.SelectNext(); }),
+                new NavigationScheme.Entry(MenuAction.Left, "Menu.Common.PreviousTab",
+                    ctx => { if (AcceptsTap(ctx)) _tabsNavGroup.SelectPrevious(); }),
                 new NavigationScheme.Entry(MenuAction.Up, "Menu.Common.Up",
                     ctx => { if (AcceptsTap(ctx) && IsShowingBinds) _editBinds.SelectPreviousGameMode(ctx.IsRepeat); },
                     hide: true),
