@@ -183,6 +183,10 @@ namespace YARG.Menu.MusicLibrary
         protected      bool _needsNavigationSchemeRefresh = false;
         private        bool _setlistHadSongs;
 
+        private const float SETLIST_REDRAW_INTERVAL = 0.25f;
+        private int   _renderedSetlistContent = -1;
+        private float _nextSetlistRedrawAt;
+
         protected virtual bool SearchAllowed => true;
 
         public static void NeedsReload()
@@ -974,6 +978,10 @@ namespace YARG.Menu.MusicLibrary
             if (DialogManager.Instance != null && DialogManager.Instance.IsDialogShowing)
                 return true;
 
+            // Filters pushes its own scheme over the library's
+            if (IsFiltersMenuOpen())
+                return true;
+
             return false;
         }
 
@@ -1043,7 +1051,47 @@ namespace YARG.Menu.MusicLibrary
                 _needsNavigationSchemeRefresh = false;
                 SetNavigationScheme(true);
             }
+
+            FollowSetlistEdits();
         }
+
+        /// <summary>
+        /// Redraws a view of the setlist after an outside app edits it. The library's own edits redraw at once,
+        /// which records <see cref="_renderedSetlistContent"/>, so they don't trigger this.
+        /// </summary>
+        private void FollowSetlistEdits()
+        {
+            if (_renderedSetlistContent == Setlist.ContentRevision || !IsShowingSetlist() ||
+                IsNavigationSchemeBlocked() || Time.unscaledTime < _nextSetlistRedrawAt)
+            {
+                return;
+            }
+
+            // A redraw rebuilds the whole list, so a client editing every frame can't make the library do the same
+            _nextSetlistRedrawAt = Time.unscaledTime + SETLIST_REDRAW_INTERVAL;
+
+            if (ShowPlaylist.Count == 0 && MenuState == MenuState.Show)
+            {
+                LeaveShowMode();
+            }
+            else if (ShowPlaylist.Count == 0 && MenuState == MenuState.Playlist)
+            {
+                ExitPlaylistView();
+            }
+            else
+            {
+                RefreshAndReselect(refreshNavigationScheme: false);
+            }
+        }
+
+        private bool IsShowingSetlist() => MenuState switch
+        {
+            MenuState.Show           => true,
+            MenuState.Playlist       => SelectedPlaylist == ShowPlaylist,
+            // Its "Current Setlist" row comes and goes with the setlist
+            MenuState.PlaylistSelect => true,
+            _                        => false,
+        };
 
         private void StartPreview(double delay)
         {

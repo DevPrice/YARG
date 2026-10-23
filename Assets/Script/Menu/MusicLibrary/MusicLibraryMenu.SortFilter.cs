@@ -134,6 +134,8 @@ namespace YARG.Menu.MusicLibrary
                 return;
             }
 
+            _renderedSetlistContent = Setlist.ContentRevision;
+
             string previousSearch = _currentSearch;
             SongEntry previousSelectedSong = (CurrentSelection as SongViewType)?.SongEntry;
             int previousSelectedIndex = SelectedIndex;
