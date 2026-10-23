@@ -110,8 +110,9 @@ namespace YARG.Playlists
             // Get the index of the song
             var index = SongHashes.IndexOf(song.Hash);
 
-            // If the song is not at the bottom, swap it with the next song
-            if (index < SongHashes.Count - 1)
+            // If the song is not at the bottom, swap it with the next song. A setlist app can remove the song
+            // while the setlist view still shows it.
+            if (index >= 0 && index < SongHashes.Count - 1)
             {
                 (SongHashes[index + 1], SongHashes[index]) = (SongHashes[index], SongHashes[index + 1]);
                 OnEdited();

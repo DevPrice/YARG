@@ -86,6 +86,8 @@ namespace YARG.Menu.ScoreScreen
         private bool _showAdvancedStats;
         private bool _offsetModified;
         private int _humanPlayerCount;
+        private bool _schemeHasNext;
+        private bool _setlistChanged;
         private string _songHashKey;
         private Dictionary<string, long> _offsets;
 
@@ -161,6 +163,7 @@ namespace YARG.Menu.ScoreScreen
             CreateScoreCards(scoreScreenStats);
 
             SetNavigationScheme();
+            Setlist.Changed += OnSetlistChanged;
 
             _sourceIcon.sprite = SongSources.SourceToIcon(song.Source);
 
@@ -173,6 +176,8 @@ namespace YARG.Menu.ScoreScreen
 
         private void OnDisable()
         {
+            Setlist.Changed -= OnSetlistChanged;
+
             // Only write back if an offset was actually toggled here; otherwise there's nothing
             // to persist and re-saving unmodified data risks clobbering entries that couldn't be
             // recovered from a corrupted file on load.
@@ -686,7 +691,8 @@ namespace YARG.Menu.ScoreScreen
                 buttons.Add(_showAdvancedButtonEntry);
             }
 
-            if (Setlist.HasNext)
+            _schemeHasNext = Setlist.HasNext;
+            if (_schemeHasNext)
             {
                 buttons.Insert(1, _endEarlyButtonEntry);
             }
@@ -709,6 +715,24 @@ namespace YARG.Menu.ScoreScreen
             buttons.Add(_scrollUpEntry);
             buttons.Add(_scrollDownEntry);
             _ = Navigator.Instance.PushScheme(new(buttons, true));
+        }
+
+        // A setlist app can add or clear the songs after this one while the score screen is up. Changed also fires
+        // inside Continue's own handler, so the scheme is rebuilt on the next frame rather than from here.
+        private void OnSetlistChanged() => _setlistChanged = true;
+
+        private void Update()
+        {
+            if (!_setlistChanged)
+            {
+                return;
+            }
+
+            _setlistChanged = false;
+            if (Setlist.IsPlaying && Setlist.HasNext != _schemeHasNext)
+            {
+                UpdateNavigationScheme(true);
+            }
         }
 
         private void ShowReplayAnalysis(SongEntry song, ScoreScreenStats scoreScreenStats)
