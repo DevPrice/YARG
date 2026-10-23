@@ -33,18 +33,14 @@ namespace YARG.Playlists
         Locked,
         Full,
         Incompatible,
+        Inactive,
     }
 
     /// <summary>
-    /// Stable entry IDs and the edits outside apps can make. None of these allocate once the lists have grown.
+    /// Stable entry IDs and rule-checked edits. None of these allocate once the lists have grown.
     /// </summary>
     public static partial class Setlist
     {
-        /// <summary>
-        /// <see cref="TryAdd"/> stops here. The setlist UI has no limit.
-        /// </summary>
-        public const int MAX_REMOTE_SIZE = 500;
-
         /// <summary>
         /// Increments when the songs change, but not on playback or <see cref="IsActive"/> changes.
         /// </summary>
@@ -102,8 +98,11 @@ namespace YARG.Playlists
             }
         }
 
+        /// <summary>
+        /// Adds a song unless the setlist already holds <paramref name="maxCount"/> songs.
+        /// </summary>
         public static SetlistEditResult TryAdd(HashWrapper hash, SetlistPosition where, uint anchorId,
-            out uint entryId)
+            int maxCount, out uint entryId)
         {
             SyncEntryIds();
             entryId = 0;
@@ -125,7 +124,7 @@ namespace YARG.Playlists
                 return SetlistEditResult.AlreadyInSetlist;
             }
 
-            if (Playlist.SongHashes.Count >= MAX_REMOTE_SIZE)
+            if (Playlist.SongHashes.Count >= maxCount)
             {
                 return SetlistEditResult.Full;
             }

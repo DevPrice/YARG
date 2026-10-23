@@ -25,11 +25,7 @@ namespace YARG.Integration
 
         private const int SNAPSHOT_HEADER_SIZE_V1 = 22;
         private const int SNAPSHOT_HEADER_SIZE_V2 = 26;
-        private const int MIN_ENTRY_SIZE = HashWrapper.HASH_SIZE_IN_BYTES + 4 + 3 * 2;
         private const int MAX_ENTRY_SIZE = 4 + HashWrapper.HASH_SIZE_IN_BYTES + 4 + 3 * (2 + MAX_STRING_BYTES);
-
-        public const int MAX_SNAPSHOT_ENTRIES =
-            (MAX_SNAPSHOT_BYTES - FRAME_HEADER_SIZE - SNAPSHOT_HEADER_SIZE_V1) / MIN_ENTRY_SIZE;
 
         private const byte FLAG_SHOW_IN_PROGRESS = 1 << 0;
         private const byte FLAG_TRUNCATED        = 1 << 1;
@@ -72,16 +68,35 @@ namespace YARG.Integration
             Incompatible     = 9,
         }
 
+        // Positions on the wire, mapped explicitly so reordering SetlistPosition can't change the protocol
+        private const byte POSITION_END   = 0;
+        private const byte POSITION_START = 1;
+        private const byte POSITION_AFTER = 2;
+
         public struct Command
         {
-            public uint            RequestId;
-            public CommandOp       Op;
-            public HashWrapper     Hash;
-            public uint            EntryId;
-            public SetlistPosition Position;
-            public uint            AnchorId;
-            public bool            Malformed;
+            public uint           RequestId;
+            public SetlistCommand Edit;
+
+            /// <summary>
+            /// The op, position or length was invalid; answer with <see cref="ResultStatus.Malformed"/>.
+            /// </summary>
+            public bool Malformed;
         }
+
+        public static ResultStatus ToStatus(SetlistEditResult result) => result switch
+        {
+            SetlistEditResult.Ok               => ResultStatus.Ok,
+            SetlistEditResult.Inactive         => ResultStatus.Inactive,
+            SetlistEditResult.EntryNotFound    => ResultStatus.EntryNotFound,
+            SetlistEditResult.AnchorNotFound   => ResultStatus.AnchorNotFound,
+            SetlistEditResult.SongNotFound     => ResultStatus.SongNotFound,
+            SetlistEditResult.AlreadyInSetlist => ResultStatus.AlreadyInSetlist,
+            SetlistEditResult.Locked           => ResultStatus.Locked,
+            SetlistEditResult.Full             => ResultStatus.Full,
+            SetlistEditResult.Incompatible     => ResultStatus.Incompatible,
+            _                                  => ResultStatus.Malformed,
+        };
 
         /// <summary>
         /// The highest version both sides speak, or 0 when there's none.
@@ -184,23 +199,27 @@ namespace YARG.Integration
             }
 
             command.RequestId = BinaryPrimitives.ReadUInt32LittleEndian(payload);
-            command.Op = (CommandOp) payload[4];
             var args = payload[5..];
+            ref var edit = ref command.Edit;
 
-            switch (command.Op)
+            switch ((CommandOp) payload[4])
             {
                 case CommandOp.Add when args.Length == HashWrapper.HASH_SIZE_IN_BYTES + 5:
-                    command.Hash = HashWrapper.Create(args[..HashWrapper.HASH_SIZE_IN_BYTES]);
-                    command.Malformed = !TryReadPosition(args[HashWrapper.HASH_SIZE_IN_BYTES..], ref command);
+                    edit.Op = SetlistCommandOp.Add;
+                    edit.Hash = HashWrapper.Create(args[..HashWrapper.HASH_SIZE_IN_BYTES]);
+                    command.Malformed = !TryReadPosition(args[HashWrapper.HASH_SIZE_IN_BYTES..], ref edit);
                     break;
                 case CommandOp.Remove when args.Length == 4:
-                    command.EntryId = BinaryPrimitives.ReadUInt32LittleEndian(args);
+                    edit.Op = SetlistCommandOp.Remove;
+                    edit.EntryId = BinaryPrimitives.ReadUInt32LittleEndian(args);
                     break;
                 case CommandOp.Move when args.Length == 9:
-                    command.EntryId = BinaryPrimitives.ReadUInt32LittleEndian(args);
-                    command.Malformed = !TryReadPosition(args[4..], ref command);
+                    edit.Op = SetlistCommandOp.Move;
+                    edit.EntryId = BinaryPrimitives.ReadUInt32LittleEndian(args);
+                    command.Malformed = !TryReadPosition(args[4..], ref edit);
                     break;
                 case CommandOp.Clear when args.Length == 0:
+                    edit.Op = SetlistCommandOp.Clear;
                     break;
                 default:
                     command.Malformed = true;
@@ -210,15 +229,24 @@ namespace YARG.Integration
             return true;
         }
 
-        private static bool TryReadPosition(ReadOnlySpan<byte> args, ref Command command)
+        private static bool TryReadPosition(ReadOnlySpan<byte> args, ref SetlistCommand edit)
         {
-            if (args[0] > (byte) SetlistPosition.After)
+            switch (args[0])
             {
-                return false;
+                case POSITION_END:
+                    edit.Position = SetlistPosition.End;
+                    break;
+                case POSITION_START:
+                    edit.Position = SetlistPosition.Start;
+                    break;
+                case POSITION_AFTER:
+                    edit.Position = SetlistPosition.After;
+                    break;
+                default:
+                    return false;
             }
 
-            command.Position = (SetlistPosition) args[0];
-            command.AnchorId = BinaryPrimitives.ReadUInt32LittleEndian(args[1..]);
+            edit.AnchorId = BinaryPrimitives.ReadUInt32LittleEndian(args[1..]);
             return true;
         }
 

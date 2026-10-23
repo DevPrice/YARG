@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using UnityEngine;
 using YARG.Core.Logging;
-using YARG.Localization;
 using YARG.Menu.Persistent;
 using YARG.Playlists;
 using YARG.Settings;
@@ -38,9 +37,6 @@ namespace YARG.Integration
         // Each command is a list edit plus an ID lookup, so this bounds the main thread's share per frame
         private const int MAX_COMMANDS_PER_FRAME = 8;
 
-        // A client adding songs one at a time would otherwise queue a toast per song, which outlive the library
-        private const float ADDED_TOAST_INTERVAL = 3f;
-
         private readonly List<SetlistEntry> _entries = new();
         private bool _published;
         private int  _publishedSetlistRevision;
@@ -49,7 +45,6 @@ namespace YARG.Integration
 
         private readonly SetlistSocketServer.QueuedResult[] _frameResults =
             new SetlistSocketServer.QueuedResult[MAX_COMMANDS_PER_FRAME];
-        private float _lastAddedToastAt = float.NegativeInfinity;
 
         private void LateUpdate()
         {
@@ -202,33 +197,14 @@ namespace YARG.Integration
         {
             int limit = Math.Min(MAX_COMMANDS_PER_FRAME, _server.FreeResultSlots);
             int count = 0;
-            bool added = false;
 
             while (count < limit && _server.TryTakeCommand(out var queued))
             {
                 var command = queued.Command;
-                uint entryId = command.EntryId;
-                var status = SetlistProtocol.ResultStatus.Inactive;
-
-                if (command.Malformed)
-                {
-                    status = SetlistProtocol.ResultStatus.Malformed;
-                }
-                else if (Setlist.IsActive)
-                {
-                    var result = command.Op switch
-                    {
-                        SetlistProtocol.CommandOp.Add =>
-                            Setlist.TryAdd(command.Hash, command.Position, command.AnchorId, out entryId),
-                        SetlistProtocol.CommandOp.Remove => Setlist.TryRemove(command.EntryId),
-                        SetlistProtocol.CommandOp.Move =>
-                            Setlist.TryMove(command.EntryId, command.Position, command.AnchorId),
-                        _ => Setlist.ClearUpcoming(),
-                    };
-
-                    status = ToStatus(result);
-                    added |= command.Op == SetlistProtocol.CommandOp.Add && result == SetlistEditResult.Ok;
-                }
+                uint entryId = command.Edit.EntryId;
+                var status = command.Malformed
+                    ? SetlistProtocol.ResultStatus.Malformed
+                    : SetlistProtocol.ToStatus(SetlistCommands.Apply(command.Edit, out entryId));
 
                 _frameResults[count++] = new SetlistSocketServer.QueuedResult
                 {
@@ -238,14 +214,6 @@ namespace YARG.Integration
                     Status = status,
                     EntryId = entryId,
                 };
-            }
-
-            // The library's own "add to setlist" shows this toast too
-            bool inLibrary = Setlist.IsActive && !Setlist.IsPlaying;
-            if (added && inLibrary && Time.unscaledTime - _lastAddedToastAt >= ADDED_TOAST_INTERVAL)
-            {
-                _lastAddedToastAt = Time.unscaledTime;
-                ToastManager.ToastSuccess(Localize.Key("Menu.MusicLibrary.AddedToSet"));
             }
 
             return count;
@@ -266,18 +234,5 @@ namespace YARG.Integration
 
             _server.SendResults();
         }
-
-        private static SetlistProtocol.ResultStatus ToStatus(SetlistEditResult result) => result switch
-        {
-            SetlistEditResult.Ok               => SetlistProtocol.ResultStatus.Ok,
-            SetlistEditResult.EntryNotFound    => SetlistProtocol.ResultStatus.EntryNotFound,
-            SetlistEditResult.AnchorNotFound   => SetlistProtocol.ResultStatus.AnchorNotFound,
-            SetlistEditResult.SongNotFound     => SetlistProtocol.ResultStatus.SongNotFound,
-            SetlistEditResult.AlreadyInSetlist => SetlistProtocol.ResultStatus.AlreadyInSetlist,
-            SetlistEditResult.Locked           => SetlistProtocol.ResultStatus.Locked,
-            SetlistEditResult.Full             => SetlistProtocol.ResultStatus.Full,
-            SetlistEditResult.Incompatible     => SetlistProtocol.ResultStatus.Incompatible,
-            _                                  => SetlistProtocol.ResultStatus.Malformed,
-        };
     }
 }

@@ -184,8 +184,11 @@ namespace YARG.Menu.MusicLibrary
         private        bool _setlistHadSongs;
 
         private const float SETLIST_REDRAW_INTERVAL = 0.25f;
+        private const float ADDED_TOAST_INTERVAL    = 3f;
         private int   _renderedSetlistContent = -1;
         private float _nextSetlistRedrawAt;
+        private float _nextSchemeRefreshAt;
+        private float _lastAddedToastAt = float.NegativeInfinity;
 
         protected virtual bool SearchAllowed => true;
 
@@ -235,6 +238,7 @@ namespace YARG.Menu.MusicLibrary
 
             // Set navigation scheme
             SetNavigationScheme();
+            _needsNavigationSchemeRefresh = false;
 
             // Restore search
             if (SearchAllowed)
@@ -353,6 +357,7 @@ namespace YARG.Menu.MusicLibrary
 
             _setlistHadSongs = ShowPlaylist.Count > 0;
             Setlist.Changed += OnSetlistChanged;
+            SetlistCommands.SongAdded += OnRemoteSongAdded;
 
             // Ensure the sidebar is rendered correctly on first entry
             _sidebar.UpdateSidebar(true);
@@ -994,14 +999,23 @@ namespace YARG.Menu.MusicLibrary
                 return;
             }
 
+            // Applied from Update, so a setlist app flipping the setlist between empty and not every frame can't
+            // rebuild the scheme every frame
             _setlistHadSongs = hasSongs;
-            if (IsNavigationSchemeBlocked())
+            _needsNavigationSchemeRefresh = true;
+        }
+
+        // The library's own "add to setlist" shows the same toast. A setlist app adding songs one request at a time
+        // would otherwise queue a toast per song, which would keep showing long after the library closed.
+        private void OnRemoteSongAdded()
+        {
+            if (Time.unscaledTime - _lastAddedToastAt < ADDED_TOAST_INTERVAL)
             {
-                _needsNavigationSchemeRefresh = true;
                 return;
             }
 
-            SetNavigationScheme(true);
+            _lastAddedToastAt = Time.unscaledTime;
+            ToastManager.ToastSuccess(Localize.Key("Menu.MusicLibrary.AddedToSet"));
         }
 
         public void RefreshNavigationSchemeAfterPopup()
@@ -1046,9 +1060,11 @@ namespace YARG.Menu.MusicLibrary
 
         protected void Update()
         {
-            if (_needsNavigationSchemeRefresh && !IsNavigationSchemeBlocked())
+            if (_needsNavigationSchemeRefresh && !IsNavigationSchemeBlocked() &&
+                Time.unscaledTime >= _nextSchemeRefreshAt)
             {
                 _needsNavigationSchemeRefresh = false;
+                _nextSchemeRefreshAt = Time.unscaledTime + SETLIST_REDRAW_INTERVAL;
                 SetNavigationScheme(true);
             }
 
@@ -1126,6 +1142,7 @@ namespace YARG.Menu.MusicLibrary
             base.OnDisable();
             SetSidebarDifficultiesVisible(false);
             Setlist.Changed -= OnSetlistChanged;
+            SetlistCommands.SongAdded -= OnRemoteSongAdded;
 
             if (Navigator.Instance == null) return;
 
