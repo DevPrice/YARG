@@ -30,8 +30,10 @@ namespace YARG.Integration
         // fits in the kernel buffer.
         private const int MAX_UNACKED_BYTES = 192 * 1024;
 
-        // Tokens of the most recent frames sent to a client, which its acks are matched against
-        private const int RECENT_FRAMES = 32;
+        // Tokens of the most recent frames sent to a client, which its acks are matched against. An ack queues
+        // behind the client's pending commands, so with results flowing it can name a frame sent hundreds of frames
+        // earlier; a token that has dropped out of here can't be acknowledged.
+        private const int RECENT_FRAMES = 1024;
 
         private const int QUEUE_SIZE            = 64;
         private const int MAX_QUEUED_PER_CLIENT = 4;
@@ -574,11 +576,19 @@ namespace YARG.Integration
         /// </summary>
         private static void Acknowledge(Client client, uint token)
         {
-            for (int i = 0; i < RECENT_FRAMES; i++)
+            // Newest first, stopping at frames already acknowledged
+            for (int n = 1; n <= RECENT_FRAMES; n++)
             {
-                if (client.RecentEnds[i] > 0 && client.RecentTokens[i] == token)
+                int i = (client.RecentNext - n + RECENT_FRAMES) % RECENT_FRAMES;
+                long end = client.RecentEnds[i];
+                if (end <= client.AckedBytes)
                 {
-                    client.AckedBytes = Math.Max(client.AckedBytes, client.RecentEnds[i]);
+                    return;
+                }
+
+                if (client.RecentTokens[i] == token)
+                {
+                    client.AckedBytes = end;
                     return;
                 }
             }

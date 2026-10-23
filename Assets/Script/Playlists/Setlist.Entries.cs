@@ -215,11 +215,13 @@ namespace YARG.Playlists
                 return SetlistEditResult.Locked;
             }
 
-            int first = IsPlaying ? CurrentPosition() + 1 : 0;
-            if (IsPlaying && first == 0)
+            int current = CurrentPosition();
+            if (IsLocked(Playlist.SongHashes.Count, current))
             {
                 return SetlistEditResult.Locked;
             }
+
+            int first = current + 1;
 
             int count = Playlist.SongHashes.Count - first;
             if (count > 0)
@@ -257,10 +259,11 @@ namespace YARG.Playlists
             }
 
             // Nothing may land at or before the song being played; right after it makes it the next song
-            return IsPlaying && index <= current ? SetlistEditResult.Locked : SetlistEditResult.Ok;
+            return IsLocked(index, current) ? SetlistEditResult.Locked : SetlistEditResult.Ok;
         }
 
-        private static bool IsLocked(int position, int current) => IsPlaying && position <= current;
+        // If the song being played can't be found, any position might be at or before it, so all are locked
+        private static bool IsLocked(int position, int current) => IsPlaying && (current < 0 || position <= current);
 
         /// <summary>
         /// The position in <see cref="Playlist.SongHashes"/> of the song being played, or -1 outside a show.
