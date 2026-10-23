@@ -64,8 +64,14 @@ namespace YARG.Menu
             }
         }
 
+        private void OnEnable()
+        {
+            Setlist.SetMenuSceneLoaded(true);
+        }
+
         private void OnDisable()
         {
+            Setlist.SetMenuSceneLoaded(false);
             Setlist.SetLibraryOpen(false);
 
             _lastOpenMenu = Menu.None;

@@ -8,7 +8,7 @@ namespace YARG.Playlists
     /// <summary>
     /// The live setlist: the songs queued in the music library, and the position in them while a show is played.
     /// </summary>
-    public static class Setlist
+    public static partial class Setlist
     {
         public static Playlist Playlist { get; } = CreatePlaylist();
 
@@ -134,6 +134,7 @@ namespace YARG.Playlists
                 return;
             }
 
+            ReplaceIdHashes(replacements);
             int replaced = PlaylistContainer.ReplaceHashes(Playlist, replacements);
             if (replaced == 0)
             {
@@ -146,13 +147,13 @@ namespace YARG.Playlists
 
             YargLogger.LogFormatInfo("Replaced {0} updated song hashes in the setlist, removing {1} duplicates",
                 replaced, duplicates);
-            OnChanged();
+            OnSongsChanged();
         }
 
         private static Playlist CreatePlaylist()
         {
             var playlist = new Playlist(true);
-            playlist.Edited += OnChanged;
+            playlist.Edited += OnSongsChanged;
             return playlist;
         }
 
