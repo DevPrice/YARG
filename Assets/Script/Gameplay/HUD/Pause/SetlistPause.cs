@@ -12,37 +12,55 @@ namespace YARG.Gameplay.HUD
         protected override void OnEnable()
         {
             base.OnEnable();
-
-            // Disable skip option if this is the last song
-            if (!Setlist.HasNext)
-            {
-                HideSkip();
-            }
-
-            Setlist.Changed += OnSetlistChanged;
+            UpdateSkip();
+            Setlist.Changed += UpdateSkip;
         }
 
         protected override void OnDisable()
         {
             base.OnDisable();
-            Setlist.Changed -= OnSetlistChanged;
+            Setlist.Changed -= UpdateSkip;
         }
 
-        // A setlist app can clear the songs after this one while the game is paused, and Skip with nothing next
-        // quits the show
-        private void OnSetlistChanged()
+        // Skip with nothing next quits the show, and a setlist app can add or remove the songs after this one while
+        // the game is paused
+        private void UpdateSkip()
         {
-            if (_skipObject.activeSelf && !Setlist.HasNext)
+            bool hasNext = Setlist.HasNext;
+            if (_skipObject.activeSelf == hasNext)
             {
-                HideSkip();
+                return;
+            }
+
+            var skip = _skipObject.GetComponent<NavigatableBehaviour>();
+            if (!hasNext)
+            {
+                skip.SetSelected(false, SelectionOrigin.Programmatically);
+            }
+
+            _skipObject.SetActive(hasNext);
+
+            // The navigation group adds only active children when it wakes, which on the first pause comes after
+            // this hides Skip
+            if (hasNext && skip.NavigationGroup == null)
+            {
+                AddInSiblingOrder(skip);
             }
         }
 
-        private void HideSkip()
+        private void AddInSiblingOrder(NavigatableBehaviour skip)
         {
-            _skipObject.SetActive(false);
             var navigationGroup = GetComponentInChildren<NavigationGroup>();
-            navigationGroup.RemoveNavigatable(_skipObject.GetComponent<NavigatableBehaviour>());
+            int sibling = _skipObject.transform.GetSiblingIndex();
+
+            int index = 0;
+            while (index < navigationGroup.Count &&
+                navigationGroup.Navigatables[index].transform.GetSiblingIndex() < sibling)
+            {
+                index++;
+            }
+
+            navigationGroup.InsertNavigatable(index, skip);
         }
 
         public void Skip()

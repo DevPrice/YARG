@@ -87,12 +87,22 @@ namespace YARG.Menu.Navigation
 
         private void _AddNavigatable(NavigatableBehaviour navigatable)
         {
+            _InsertNavigatable(_navigatables.Count, navigatable);
+        }
+
+        private void _InsertNavigatable(int index, NavigatableBehaviour navigatable)
+        {
             if (_navigatables.Contains(navigatable))
                 throw new InvalidOperationException($"Navigation group {this} already contains navigatable {navigatable}!");
 
-            _navigatables.Add(navigatable);
+            _navigatables.Insert(index, navigatable);
             navigatable.NavigationGroup = this;
             navigatable.SelectionStateChanged += OnSelectionStateChanged;
+
+            if (SelectedIndex >= index)
+            {
+                SelectedIndex++;
+            }
         }
 
         public void AddNavigatable(NavigatableBehaviour navigatable)
@@ -106,6 +116,15 @@ namespace YARG.Menu.Navigation
             }
 
             _AddNavigatable(navigatable);
+        }
+
+        /// <summary>
+        /// Adds <paramref name="navigatable"/> at <paramref name="index"/> in navigation order, keeping the current
+        /// selection. Call it only after this group's Awake.
+        /// </summary>
+        public void InsertNavigatable(int index, NavigatableBehaviour navigatable)
+        {
+            _InsertNavigatable(index, navigatable);
         }
 
         public void AddNavigatable(GameObject gameObj)
