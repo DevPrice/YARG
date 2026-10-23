@@ -18,6 +18,11 @@ namespace YARG.Integration
     /// </summary>
     internal sealed class SetlistSnapshot
     {
+        /// <summary>
+        /// A snapshot carries at most this many entries; songs past it are counted in <see cref="TotalCount"/> only.
+        /// </summary>
+        public const int CAPACITY = 2048;
+
         public uint Revision;
         public bool Active;
         public bool ShowInProgress;
@@ -30,6 +35,6 @@ namespace YARG.Integration
         public int TotalCount;
 
         public int EntryCount;
-        public readonly SetlistSnapshotEntry[] Entries = new SetlistSnapshotEntry[SetlistProtocol.MAX_SNAPSHOT_ENTRIES];
+        public readonly SetlistSnapshotEntry[] Entries = new SetlistSnapshotEntry[CAPACITY];
     }
 }
