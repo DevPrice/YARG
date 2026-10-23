@@ -4,6 +4,7 @@ namespace YARG.Integration
 {
     internal struct SetlistSnapshotEntry
     {
+        public uint Id;
         public HashWrapper Hash;
         public uint LengthMs;
         public string Title;
@@ -21,6 +22,7 @@ namespace YARG.Integration
         public bool Active;
         public bool ShowInProgress;
         public int CurrentIndex;
+        public uint CurrentEntryId;
 
         /// <summary>
         /// Songs in the setlist, including any beyond <see cref="EntryCount"/>.

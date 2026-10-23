@@ -1936,7 +1936,7 @@
             },
             "SetlistSocketEnable": {
                 "Name": "Enable setlist socket",
-                "Description": "Lets apps on this computer follow the setlist over a local connection on port 36108. Other devices can't connect."
+                "Description": "Lets apps on this computer follow and edit the setlist over a local connection on port 36108. Other devices can't connect."
             },
             "RB3EEnabled": {
                 "Name": "Enable RB3E Stage Kit data stream",
