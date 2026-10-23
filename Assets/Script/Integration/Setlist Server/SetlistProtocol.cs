@@ -2,15 +2,18 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using YARG.Core.Song;
+using YARG.Playlists;
 
 namespace YARG.Integration
 {
     /// <summary>
-    /// The setlist socket's wire format, version 1. Little-endian throughout. Nothing here allocates.
+    /// The setlist socket's wire format, versions 1 (read-only) and 2 (entry IDs and commands). Little-endian
+    /// throughout. Nothing here allocates.
     /// </summary>
     internal static class SetlistProtocol
     {
-        public const ushort VERSION = 1;
+        public const ushort MIN_VERSION = 1;
+        public const ushort MAX_VERSION = 2;
 
         public const int CLIENT_HELLO_SIZE = 8;
         public const int SERVER_HELLO_SIZE = 17;
@@ -18,13 +21,15 @@ namespace YARG.Integration
         public const int MAX_CLIENT_FRAME = 64;
         public const int MAX_SNAPSHOT_BYTES = 64 * 1024;
         public const int MAX_STRING_BYTES = 256;
+        public const int RESULT_FRAME_SIZE = FRAME_HEADER_SIZE + 17;
 
-        private const int SNAPSHOT_HEADER_SIZE = 22;
+        private const int SNAPSHOT_HEADER_SIZE_V1 = 22;
+        private const int SNAPSHOT_HEADER_SIZE_V2 = 26;
         private const int MIN_ENTRY_SIZE = HashWrapper.HASH_SIZE_IN_BYTES + 4 + 3 * 2;
-        private const int MAX_ENTRY_SIZE = HashWrapper.HASH_SIZE_IN_BYTES + 4 + 3 * (2 + MAX_STRING_BYTES);
+        private const int MAX_ENTRY_SIZE = 4 + HashWrapper.HASH_SIZE_IN_BYTES + 4 + 3 * (2 + MAX_STRING_BYTES);
 
         public const int MAX_SNAPSHOT_ENTRIES =
-            (MAX_SNAPSHOT_BYTES - FRAME_HEADER_SIZE - SNAPSHOT_HEADER_SIZE) / MIN_ENTRY_SIZE;
+            (MAX_SNAPSHOT_BYTES - FRAME_HEADER_SIZE - SNAPSHOT_HEADER_SIZE_V1) / MIN_ENTRY_SIZE;
 
         private const byte FLAG_SHOW_IN_PROGRESS = 1 << 0;
         private const byte FLAG_TRUNCATED        = 1 << 1;
@@ -33,6 +38,8 @@ namespace YARG.Integration
         {
             Snapshot = 0x01,
             Ack      = 0x02,
+            Result   = 0x03,
+            Command  = 0x10,
             Error    = 0x7F,
         }
 
@@ -41,6 +48,48 @@ namespace YARG.Integration
             Ok              = 0,
             NoCommonVersion = 1,
             Busy            = 2,
+        }
+
+        public enum CommandOp : byte
+        {
+            Add    = 1,
+            Remove = 2,
+            Move   = 3,
+            Clear  = 4,
+        }
+
+        public enum ResultStatus : byte
+        {
+            Ok               = 0,
+            Inactive         = 1,
+            EntryNotFound    = 2,
+            AnchorNotFound   = 3,
+            SongNotFound     = 4,
+            AlreadyInSetlist = 5,
+            Locked           = 6,
+            Full             = 7,
+            Malformed        = 8,
+            Incompatible     = 9,
+        }
+
+        public struct Command
+        {
+            public uint            RequestId;
+            public CommandOp       Op;
+            public HashWrapper     Hash;
+            public uint            EntryId;
+            public SetlistPosition Position;
+            public uint            AnchorId;
+            public bool            Malformed;
+        }
+
+        /// <summary>
+        /// The highest version both sides speak, or 0 when there's none.
+        /// </summary>
+        public static ushort ChooseVersion(ushort clientMin, ushort clientMax)
+        {
+            ushort version = Math.Min(clientMax, MAX_VERSION);
+            return version >= Math.Max(clientMin, MIN_VERSION) ? version : (ushort) 0;
         }
 
         // "YSET". It isn't the start of an HTTP method or a TLS record (0x16), so a browser's request fails on its
@@ -107,8 +156,8 @@ namespace YARG.Integration
         }
 
         /// <summary>
-        /// An Ack echoes the token of the last frame the client read. Tokens are random, so a client can only
-        /// acknowledge a frame it has actually read.
+        /// An Ack echoes the token of the last frame the client read, snapshot or result. Tokens are random, so a
+        /// client can only acknowledge a frame it has actually read.
         /// </summary>
         public static bool TryReadAck(ReadOnlySpan<byte> payload, out uint token)
         {
@@ -123,18 +172,89 @@ namespace YARG.Integration
         }
 
         /// <summary>
-        /// Encodes a Snapshot frame into <paramref name="buffer"/>, which must hold <see cref="MAX_SNAPSHOT_BYTES"/>.
-        /// Entries that don't fit are left out and the truncated flag is set. Returns the frame's size.
+        /// Reads a Command payload. Returns false when it's too short to carry a request ID, which the server
+        /// treats as a broken connection; otherwise a bad op, position or length sets <see cref="Command.Malformed"/>.
         /// </summary>
-        public static int WriteSnapshot(byte[] buffer, SetlistSnapshot snapshot, uint token)
+        public static bool TryReadCommand(ReadOnlySpan<byte> payload, out Command command)
+        {
+            command = default;
+            if (payload.Length < 5)
+            {
+                return false;
+            }
+
+            command.RequestId = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            command.Op = (CommandOp) payload[4];
+            var args = payload[5..];
+
+            switch (command.Op)
+            {
+                case CommandOp.Add when args.Length == HashWrapper.HASH_SIZE_IN_BYTES + 5:
+                    command.Hash = HashWrapper.Create(args[..HashWrapper.HASH_SIZE_IN_BYTES]);
+                    command.Malformed = !TryReadPosition(args[HashWrapper.HASH_SIZE_IN_BYTES..], ref command);
+                    break;
+                case CommandOp.Remove when args.Length == 4:
+                    command.EntryId = BinaryPrimitives.ReadUInt32LittleEndian(args);
+                    break;
+                case CommandOp.Move when args.Length == 9:
+                    command.EntryId = BinaryPrimitives.ReadUInt32LittleEndian(args);
+                    command.Malformed = !TryReadPosition(args[4..], ref command);
+                    break;
+                case CommandOp.Clear when args.Length == 0:
+                    break;
+                default:
+                    command.Malformed = true;
+                    break;
+            }
+
+            return true;
+        }
+
+        private static bool TryReadPosition(ReadOnlySpan<byte> args, ref Command command)
+        {
+            if (args[0] > (byte) SetlistPosition.After)
+            {
+                return false;
+            }
+
+            command.Position = (SetlistPosition) args[0];
+            command.AnchorId = BinaryPrimitives.ReadUInt32LittleEndian(args[1..]);
+            return true;
+        }
+
+        public static int WriteResult(Span<byte> buffer, uint requestId, ResultStatus status, uint entryId,
+            uint revision, uint token)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer, RESULT_FRAME_SIZE - FRAME_HEADER_SIZE);
+            buffer[4] = (byte) FrameType.Result;
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer[5..], requestId);
+            buffer[9] = (byte) status;
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer[10..], entryId);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer[14..], revision);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer[18..], token);
+            return RESULT_FRAME_SIZE;
+        }
+
+        /// <summary>
+        /// Encodes a Snapshot frame for <paramref name="version"/> into <paramref name="buffer"/>, which must hold
+        /// <see cref="MAX_SNAPSHOT_BYTES"/>. Entries that don't fit are left out and the truncated flag is set.
+        /// Returns the frame's size.
+        /// </summary>
+        public static int WriteSnapshot(byte[] buffer, SetlistSnapshot snapshot, ushort version, uint token)
         {
             var span = buffer.AsSpan(0, MAX_SNAPSHOT_BYTES);
-            int offset = FRAME_HEADER_SIZE + SNAPSHOT_HEADER_SIZE;
+            int offset = FRAME_HEADER_SIZE + (version >= 2 ? SNAPSHOT_HEADER_SIZE_V2 : SNAPSHOT_HEADER_SIZE_V1);
 
             int written = 0;
             while (written < snapshot.EntryCount && offset + MAX_ENTRY_SIZE <= span.Length)
             {
                 ref readonly var entry = ref snapshot.Entries[written];
+
+                if (version >= 2)
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(span[offset..], entry.Id);
+                    offset += 4;
+                }
 
                 var hash = entry.Hash;
                 MemoryMarshal.Write(span[offset..], ref hash);
@@ -169,6 +289,11 @@ namespace YARG.Integration
             BinaryPrimitives.WriteUInt32LittleEndian(span[15..], (uint) snapshot.TotalCount);
             BinaryPrimitives.WriteUInt32LittleEndian(span[19..], (uint) written);
             BinaryPrimitives.WriteUInt32LittleEndian(span[23..], token);
+            if (version >= 2)
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(span[27..], snapshot.CurrentEntryId);
+            }
+
             return offset;
         }
 

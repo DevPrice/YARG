@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using UnityEngine;
 using YARG.Core.Logging;
-using YARG.Core.Song;
+using YARG.Localization;
 using YARG.Menu.Persistent;
 using YARG.Playlists;
 using YARG.Settings;
@@ -35,19 +35,34 @@ namespace YARG.Integration
         private float _retryAt;
         private int   _toastedPort = -1;
 
-        private readonly List<SongEntry> _songs = new();
+        // Each command is a list edit plus an ID lookup, so this bounds the main thread's share per frame
+        private const int MAX_COMMANDS_PER_FRAME = 8;
+
+        // A client adding songs one at a time would otherwise queue a toast per song, which outlive the library
+        private const float ADDED_TOAST_INTERVAL = 3f;
+
+        private readonly List<SetlistEntry> _entries = new();
         private bool _published;
         private int  _publishedSetlistRevision;
         private bool _publishedActive;
         private int  _publishedLibraryRevision;
 
+        private readonly SetlistSocketServer.QueuedResult[] _frameResults =
+            new SetlistSocketServer.QueuedResult[MAX_COMMANDS_PER_FRAME];
+        private float _lastAddedToastAt = float.NegativeInfinity;
+
         private void LateUpdate()
         {
             UpdateServer();
-            if (_server != null)
+            if (_server is null)
             {
-                PublishIfChanged();
+                return;
             }
+
+            // Results name the snapshot revision that includes them, so publish between applying and answering
+            int resultCount = ApplyCommands();
+            PublishIfChanged();
+            PostResults(resultCount);
         }
 
         // Also runs before an editor script reload, which skips OnDestroy
@@ -141,11 +156,11 @@ namespace YARG.Integration
             // An inactive setlist is about to be cleared, so clients see it empty
             if (active)
             {
-                Setlist.ResolveSongsInto(_songs);
+                Setlist.ResolveEntriesInto(_entries);
             }
             else
             {
-                _songs.Clear();
+                _entries.Clear();
             }
 
             var snapshot = _server.PendingSnapshot;
@@ -154,13 +169,15 @@ namespace YARG.Integration
             snapshot.Active = active;
             snapshot.ShowInProgress = Setlist.IsPlaying;
             snapshot.CurrentIndex = Setlist.Index;
-            snapshot.TotalCount = _songs.Count;
-            snapshot.EntryCount = Math.Min(_songs.Count, snapshot.Entries.Length);
+            snapshot.CurrentEntryId = Setlist.CurrentEntryId;
+            snapshot.TotalCount = _entries.Count;
+            snapshot.EntryCount = Math.Min(_entries.Count, snapshot.Entries.Length);
 
             for (int i = 0; i < snapshot.EntryCount; i++)
             {
-                var song = _songs[i];
+                var song = _entries[i].Song;
                 ref var entry = ref snapshot.Entries[i];
+                entry.Id = _entries[i].Id;
                 entry.Hash = song.Hash;
                 entry.LengthMs = (uint) Math.Clamp(song.SongLengthMilliseconds, 0, uint.MaxValue);
                 entry.Title = song.Name.Original;
@@ -176,5 +193,91 @@ namespace YARG.Integration
 
             _server.Publish();
         }
+
+        /// <summary>
+        /// Applies up to <see cref="MAX_COMMANDS_PER_FRAME"/> queued commands, collecting their results in
+        /// <see cref="_frameResults"/>. Returns how many.
+        /// </summary>
+        private int ApplyCommands()
+        {
+            int limit = Math.Min(MAX_COMMANDS_PER_FRAME, _server.FreeResultSlots);
+            int count = 0;
+            bool added = false;
+
+            while (count < limit && _server.TryTakeCommand(out var queued))
+            {
+                var command = queued.Command;
+                uint entryId = command.EntryId;
+                var status = SetlistProtocol.ResultStatus.Inactive;
+
+                if (command.Malformed)
+                {
+                    status = SetlistProtocol.ResultStatus.Malformed;
+                }
+                else if (Setlist.IsActive)
+                {
+                    var result = command.Op switch
+                    {
+                        SetlistProtocol.CommandOp.Add =>
+                            Setlist.TryAdd(command.Hash, command.Position, command.AnchorId, out entryId),
+                        SetlistProtocol.CommandOp.Remove => Setlist.TryRemove(command.EntryId),
+                        SetlistProtocol.CommandOp.Move =>
+                            Setlist.TryMove(command.EntryId, command.Position, command.AnchorId),
+                        _ => Setlist.ClearUpcoming(),
+                    };
+
+                    status = ToStatus(result);
+                    added |= command.Op == SetlistProtocol.CommandOp.Add && result == SetlistEditResult.Ok;
+                }
+
+                _frameResults[count++] = new SetlistSocketServer.QueuedResult
+                {
+                    Client = queued.Client,
+                    Generation = queued.Generation,
+                    RequestId = command.RequestId,
+                    Status = status,
+                    EntryId = entryId,
+                };
+            }
+
+            // The library's own "add to setlist" shows this toast too
+            bool inLibrary = Setlist.IsActive && !Setlist.IsPlaying;
+            if (added && inLibrary && Time.unscaledTime - _lastAddedToastAt >= ADDED_TOAST_INTERVAL)
+            {
+                _lastAddedToastAt = Time.unscaledTime;
+                ToastManager.ToastSuccess(Localize.Key("Menu.MusicLibrary.AddedToSet"));
+            }
+
+            return count;
+        }
+
+        private void PostResults(int count)
+        {
+            if (count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                _frameResults[i].Revision = _server.PublishedRevision;
+                _server.PostResult(_frameResults[i]);
+            }
+
+            _server.SendResults();
+        }
+
+        private static SetlistProtocol.ResultStatus ToStatus(SetlistEditResult result) => result switch
+        {
+            SetlistEditResult.Ok               => SetlistProtocol.ResultStatus.Ok,
+            SetlistEditResult.EntryNotFound    => SetlistProtocol.ResultStatus.EntryNotFound,
+            SetlistEditResult.AnchorNotFound   => SetlistProtocol.ResultStatus.AnchorNotFound,
+            SetlistEditResult.SongNotFound     => SetlistProtocol.ResultStatus.SongNotFound,
+            SetlistEditResult.AlreadyInSetlist => SetlistProtocol.ResultStatus.AlreadyInSetlist,
+            SetlistEditResult.Locked           => SetlistProtocol.ResultStatus.Locked,
+            SetlistEditResult.Full             => SetlistProtocol.ResultStatus.Full,
+            SetlistEditResult.Incompatible     => SetlistProtocol.ResultStatus.Incompatible,
+            _                                  => SetlistProtocol.ResultStatus.Malformed,
+        };
     }
 }

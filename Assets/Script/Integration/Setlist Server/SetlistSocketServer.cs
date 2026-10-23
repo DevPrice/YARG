@@ -23,10 +23,18 @@ namespace YARG.Integration
         private const int MAX_PENDING        = 4;
         private const int ACCEPTS_PER_SECOND = 4;
         private const int SEND_BUFFER_SIZE   = 256 * 1024;
+        private const int SEND_TIMEOUT_MS    = 1000;
         private const int WAKE_INTERVAL_MS   = 10;
+
+        // Everything sent to a client that it hasn't proven it read. Kept under SEND_BUFFER_SIZE so a send always
+        // fits in the kernel buffer.
+        private const int MAX_UNACKED_BYTES = 192 * 1024;
 
         // Tokens of the most recent frames sent to a client, which its acks are matched against
         private const int RECENT_FRAMES = 32;
+
+        private const int QUEUE_SIZE            = 64;
+        private const int MAX_QUEUED_PER_CLIENT = 4;
 
         private static readonly long HandshakeTimeout = Stopwatch.Frequency * 2;
         private static readonly long AckTimeout       = Stopwatch.Frequency * 10;
@@ -50,6 +58,12 @@ namespace YARG.Integration
             public Socket      Socket;
             public ClientState State;
             public long        Deadline;
+            public ushort      Version;
+
+            /// <summary>
+            /// Changes on every accept, so a result for a dropped client never reaches the next one in this slot.
+            /// </summary>
+            public uint Generation;
 
             public readonly byte[] Received = new byte[FRAME_HEADER_SIZE + MAX_CLIENT_FRAME];
             public int ReceivedCount;
@@ -66,7 +80,27 @@ namespace YARG.Integration
             public readonly long[] RecentEnds   = new long[RECENT_FRAMES];
             public int RecentNext;
 
+            public int QueuedCommands;
+
             public bool AwaitingAck => AckedBytes < SnapshotEnd;
+            public long Unacked     => SentBytes - AckedBytes;
+        }
+
+        public struct QueuedCommand
+        {
+            public int     Client;
+            public uint    Generation;
+            public Command Command;
+        }
+
+        public struct QueuedResult
+        {
+            public int          Client;
+            public uint         Generation;
+            public uint         RequestId;
+            public ResultStatus Status;
+            public uint         EntryId;
+            public uint         Revision;
         }
 
         public int Port { get; }
@@ -83,10 +117,15 @@ namespace YARG.Integration
         private volatile bool           _faulted;
 
         private readonly Client[] _clients = new Client[MAX_CLIENTS + MAX_PENDING];
-        private readonly ulong    _sessionNonce;
-        private readonly byte[]   _helloBuffer    = new byte[SERVER_HELLO_SIZE];
-        private readonly byte[]   _snapshotBuffer = new byte[MAX_SNAPSHOT_BYTES];
-        private int  _snapshotLength;
+        private int _serviceStart;
+
+        private readonly ulong  _sessionNonce;
+        private readonly byte[] _helloBuffer  = new byte[SERVER_HELLO_SIZE];
+        private readonly byte[] _resultBuffer = new byte[RESULT_FRAME_SIZE];
+        private readonly byte[] _snapshotV1   = new byte[MAX_SNAPSHOT_BYTES];
+        private readonly byte[] _snapshotV2   = new byte[MAX_SNAPSHOT_BYTES];
+        private int  _snapshotV1Length;
+        private int  _snapshotV2Length;
         private uint _snapshotRevision;
         private uint _snapshotToken;
 
@@ -106,6 +145,15 @@ namespace YARG.Integration
         private SetlistSnapshot _reading = new();
         private bool _hasLatest;
         private uint _publishedRevision;
+
+        // Fixed rings between the threads: commands to the main thread, results back
+        private readonly object          _queueLock = new();
+        private readonly QueuedCommand[] _commands  = new QueuedCommand[QUEUE_SIZE];
+        private readonly QueuedResult[]  _results   = new QueuedResult[QUEUE_SIZE];
+        private int _commandHead;
+        private int _commandCount;
+        private int _resultHead;
+        private int _resultCount;
 
         /// <summary>
         /// Binds 127.0.0.1:<paramref name="port"/> on the calling thread, so a port in use throws here.
@@ -154,6 +202,11 @@ namespace YARG.Integration
         public SetlistSnapshot PendingSnapshot => _writing;
 
         /// <summary>
+        /// The revision of the last published snapshot. Main thread only.
+        /// </summary>
+        public uint PublishedRevision => _publishedRevision;
+
+        /// <summary>
         /// Hands <see cref="PendingSnapshot"/> to the socket thread. Main thread only.
         /// </summary>
         public void Publish()
@@ -167,6 +220,56 @@ namespace YARG.Integration
 
             _wake.Set();
         }
+
+        public bool TryTakeCommand(out QueuedCommand command)
+        {
+            lock (_queueLock)
+            {
+                if (_commandCount == 0)
+                {
+                    command = default;
+                    return false;
+                }
+
+                command = _commands[_commandHead];
+                _commandHead = (_commandHead + 1) % QUEUE_SIZE;
+                _commandCount--;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// How many results <see cref="PostResult"/> can take now. Take no more commands than this.
+        /// </summary>
+        public int FreeResultSlots
+        {
+            get
+            {
+                lock (_queueLock)
+                {
+                    return QUEUE_SIZE - _resultCount;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Queues a result for the socket thread; call <see cref="SendResults"/> once a batch is posted.
+        /// </summary>
+        public void PostResult(in QueuedResult result)
+        {
+            lock (_queueLock)
+            {
+                if (_resultCount == QUEUE_SIZE)
+                {
+                    return;
+                }
+
+                _results[(_resultHead + _resultCount) % QUEUE_SIZE] = result;
+                _resultCount++;
+            }
+        }
+
+        public void SendResults() => _wake.Set();
 
         /// <summary>
         /// Returns at once; the socket thread closes its clients and exits within a few milliseconds.
@@ -198,11 +301,14 @@ namespace YARG.Integration
 
                     if (TakeLatestSnapshot())
                     {
+                        // Encode both, so a client of either version that connects later has one to start with
                         _snapshotToken = NextToken();
-                        _snapshotLength = WriteSnapshot(_snapshotBuffer, _reading, _snapshotToken);
+                        _snapshotV1Length = WriteSnapshot(_snapshotV1, _reading, 1, _snapshotToken);
+                        _snapshotV2Length = WriteSnapshot(_snapshotV2, _reading, 2, _snapshotToken);
                         _snapshotRevision = _reading.Revision;
                     }
 
+                    DeliverResults();
                     SendSnapshots(now);
                 }
             }
@@ -254,6 +360,7 @@ namespace YARG.Integration
                     socket = _listener.Accept();
                     socket.NoDelay = true;
                     socket.SendBufferSize = SEND_BUFFER_SIZE;
+                    socket.SendTimeout = SEND_TIMEOUT_MS;
                 }
                 catch (SocketException)
                 {
@@ -265,11 +372,14 @@ namespace YARG.Integration
                 client.Socket = socket;
                 client.State = ClientState.Handshake;
                 client.Deadline = now + HandshakeTimeout;
+                client.Generation++;
+                client.Version = 0;
                 client.ReceivedCount = 0;
                 client.SentRevision = 0;
                 client.SentBytes = 0;
                 client.AckedBytes = 0;
                 client.SnapshotEnd = 0;
+                client.QueuedCommands = 0;
                 Array.Clear(client.RecentTokens, 0, RECENT_FRAMES);
                 Array.Clear(client.RecentEnds, 0, RECENT_FRAMES);
             }
@@ -277,8 +387,10 @@ namespace YARG.Integration
 
         private void ServiceClients(long now)
         {
-            foreach (var client in _clients)
+            // A rotating start, so the first slots can't take the whole command queue every time
+            for (int n = 0; n < _clients.Length; n++)
             {
+                var client = _clients[(_serviceStart + n) % _clients.Length];
                 if (client.State == ClientState.Free)
                 {
                     continue;
@@ -314,6 +426,8 @@ namespace YARG.Integration
                         break;
                 }
             }
+
+            _serviceStart = (_serviceStart + 1) % _clients.Length;
         }
 
         /// <summary>
@@ -321,13 +435,13 @@ namespace YARG.Integration
         /// </summary>
         private static bool Receive(Client client)
         {
-            if (!client.Socket.Poll(0, SelectMode.SelectRead))
+            // A full buffer holds a command waiting for queue space; TCP holds the rest until it's taken
+            int space = client.Received.Length - client.ReceivedCount;
+            if (space == 0 || !client.Socket.Poll(0, SelectMode.SelectRead))
             {
                 return true;
             }
 
-            // The buffer holds the largest allowed frame, and complete frames are consumed after every read
-            int space = client.Received.Length - client.ReceivedCount;
             int read = client.Socket.Receive(client.Received, client.ReceivedCount, space, SocketFlags.None,
                 out var error);
             if (error != SocketError.Success || read == 0)
@@ -354,17 +468,18 @@ namespace YARG.Integration
             }
 
             ReadClientHello(received, out ushort minVersion, out ushort maxVersion);
+            ushort version = ChooseVersion(minVersion, maxVersion);
             var status = HelloStatus.Ok;
-            if (minVersion > VERSION || maxVersion < VERSION)
+            if (version == 0)
             {
                 status = HelloStatus.NoCommonVersion;
             }
             else if (CountClients(ClientState.Ready) >= MAX_CLIENTS)
             {
                 status = HelloStatus.Busy;
+                version = 0;
             }
 
-            ushort version = status == HelloStatus.Ok ? VERSION : (ushort) 0;
             int length = WriteServerHello(_helloBuffer, version, status, _sessionNonce);
             client.Socket.Send(_helloBuffer, 0, length, SocketFlags.None, out var error);
             if (error != SocketError.Success)
@@ -392,6 +507,7 @@ namespace YARG.Integration
             }
 
             client.State = ClientState.Ready;
+            client.Version = version;
             Log("Setlist socket client connected");
 
             int extra = client.ReceivedCount - CLIENT_HELLO_SIZE;
@@ -404,10 +520,12 @@ namespace YARG.Integration
         }
 
         /// <summary>
-        /// Consumes every complete frame received. Returns false on a frame that breaks the protocol.
+        /// Consumes complete frames, stopping at a command that has no queue space yet. Returns false on a frame
+        /// that breaks the protocol.
         /// </summary>
-        private static bool HandleFrames(Client client)
+        private bool HandleFrames(Client client)
         {
+            int clientIndex = Array.IndexOf(_clients, client);
             int offset = 0;
             while (true)
             {
@@ -426,6 +544,20 @@ namespace YARG.Integration
                 if (type == FrameType.Ack && TryReadAck(payload, out uint token))
                 {
                     Acknowledge(client, token);
+                }
+                else if (type == FrameType.Command && client.Version >= 2)
+                {
+                    if (!TryReadCommand(payload, out var command))
+                    {
+                        return false;
+                    }
+
+                    if (client.QueuedCommands >= MAX_QUEUED_PER_CLIENT || !TryQueueCommand(clientIndex, client, command))
+                    {
+                        break;
+                    }
+
+                    client.QueuedCommands++;
                 }
 
                 offset += size;
@@ -452,6 +584,43 @@ namespace YARG.Integration
             }
         }
 
+        private bool TryQueueCommand(int clientIndex, Client client, in Command command)
+        {
+            lock (_queueLock)
+            {
+                if (_commandCount == QUEUE_SIZE)
+                {
+                    return false;
+                }
+
+                _commands[(_commandHead + _commandCount) % QUEUE_SIZE] = new QueuedCommand
+                {
+                    Client = clientIndex,
+                    Generation = client.Generation,
+                    Command = command,
+                };
+                _commandCount++;
+                return true;
+            }
+        }
+
+        private bool TryTakeResult(out QueuedResult result)
+        {
+            lock (_queueLock)
+            {
+                if (_resultCount == 0)
+                {
+                    result = default;
+                    return false;
+                }
+
+                result = _results[_resultHead];
+                _resultHead = (_resultHead + 1) % QUEUE_SIZE;
+                _resultCount--;
+                return true;
+            }
+        }
+
         private bool TakeLatestSnapshot()
         {
             lock (_swapLock)
@@ -468,13 +637,37 @@ namespace YARG.Integration
             return true;
         }
 
+        private void DeliverResults()
+        {
+            while (TryTakeResult(out var result))
+            {
+                var client = _clients[result.Client];
+                if (client.State != ClientState.Ready || client.Generation != result.Generation)
+                {
+                    continue;
+                }
+
+                client.QueuedCommands--;
+
+                // A client this far behind is sending commands without reading the answers
+                if (client.Unacked + RESULT_FRAME_SIZE > MAX_UNACKED_BYTES)
+                {
+                    Drop(client);
+                    continue;
+                }
+
+                uint token = NextToken();
+                int length = WriteResult(_resultBuffer, result.RequestId, result.Status, result.EntryId,
+                    result.Revision, token);
+                if (!Send(client, _resultBuffer, length, token))
+                {
+                    Drop(client);
+                }
+            }
+        }
+
         private void SendSnapshots(long now)
         {
-            if (_snapshotLength == 0)
-            {
-                return;
-            }
-
             foreach (var client in _clients)
             {
                 if (client.State != ClientState.Ready || client.AwaitingAck || client.SentRevision == _snapshotRevision)
@@ -482,11 +675,24 @@ namespace YARG.Integration
                     continue;
                 }
 
+                var buffer = client.Version >= 2 ? _snapshotV2 : _snapshotV1;
+                int length = client.Version >= 2 ? _snapshotV2Length : _snapshotV1Length;
+                if (length == 0)
+                {
+                    continue;
+                }
+
                 // Mono's Send doesn't return until every byte is handed to the OS, so a send that doesn't fit would
-                // block this thread for as long as the client stalls. The client has proven it read everything sent
-                // before (acks echo a token it can only get by reading), so its send buffer is empty, and a snapshot
-                // is well under SEND_BUFFER_SIZE.
-                if (!Send(client, _snapshotBuffer, _snapshotLength, _snapshotToken))
+                // block this thread for as long as the client stalls. Acks echo a token the client can only get by
+                // reading, so what it hasn't acknowledged is really unread, and keeping that under
+                // MAX_UNACKED_BYTES means the send fits in SEND_BUFFER_SIZE. Until results are acknowledged, the
+                // snapshot waits.
+                if (client.Unacked + length > MAX_UNACKED_BYTES)
+                {
+                    continue;
+                }
+
+                if (!Send(client, buffer, length, _snapshotToken))
                 {
                     Drop(client);
                     continue;
