@@ -43,10 +43,18 @@ namespace YARG.Menu.ProfileInfo
         public GameMode SelectedGameMode { get; private set; }
         public bool SelectingMenuBinds { get; private set; }
 
+        public YargPlayer CurrentPlayer => _currentPlayer;
+
+        /// <summary>
+        /// Whether the control dialog is waiting for the player to actuate the control to bind.
+        /// </summary>
+        public bool IsCapturingControl { get; private set; }
+
         private void OnEnable()
         {
+            // The player's inputs stay enabled, or a player with only a controller couldn't leave this tab.
+            // Its presses while testing binds still reach the menu, so ProfileInfoMenu ignores its taps here.
             _currentPlayer = PlayerContainer.GetPlayerFromProfile(_profileInfoMenu.CurrentProfile);
-            _currentPlayer.DisableInputs();
 
             RefreshGameModes();
         }
@@ -57,7 +65,16 @@ namespace YARG.Menu.ProfileInfo
             // and need to be unregistered
             _bindsList.DestroyChildren();
             _gameModeList.DestroyChildren();
-            _currentPlayer.EnableInputs();
+        }
+
+        public void SelectPreviousGameMode(bool isRepeat)
+        {
+            _gameModeNavGroup.SelectPrevious(isRepeat);
+        }
+
+        public void SelectNextGameMode(bool isRepeat)
+        {
+            _gameModeNavGroup.SelectNext(isRepeat);
         }
 
         private void RefreshGameModes()
@@ -124,9 +141,25 @@ namespace YARG.Menu.ProfileInfo
             }
         }
 
-        public UniTask<bool> ShowControlDialog(YargPlayer player, ControlBinding binding)
+        public async UniTask<bool> ShowControlDialog(YargPlayer player, ControlBinding binding)
         {
-            return _controlDialog.Show(player, binding);
+            // The press that picks the control must not also navigate the menu
+            bool wasEnabled = player.InputsEnabled;
+            player.DisableInputs();
+            IsCapturingControl = true;
+
+            try
+            {
+                return await _controlDialog.Show(player, binding);
+            }
+            finally
+            {
+                IsCapturingControl = false;
+                if (wasEnabled)
+                {
+                    player.EnableInputs();
+                }
+            }
         }
     }
 }
