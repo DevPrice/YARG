@@ -98,6 +98,7 @@ namespace YARG.Settings
             new SongManagerTab("SongManager", icon: "Songs")
             {
                 new HeaderMetadata("SongFolders"),
+                new ButtonRowMetadata(nameof(Settings.AddNetworkFolder)),
                 new HeaderMetadata("ScanningOptions"),
                 nameof(Settings.AllowDuplicateSongs),
                 nameof(Settings.UseFullDirectoryForPlaylists),
