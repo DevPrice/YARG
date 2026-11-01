@@ -31,29 +31,39 @@ namespace YARG.Menu.Navigation
             if (selectionOrigin != SelectionOrigin.Navigation || selected == null)
                 return;
 
-            Canvas.ForceUpdateCanvases();
-
             // Reveal a non-selectable heading above the first row when navigation wraps.
             if (_navigationGroup.SelectedIndex == 0)
             {
+                Canvas.ForceUpdateCanvases();
                 _scrollRect.verticalNormalizedPosition = 1f;
                 return;
             }
 
-            if (_scrollRect.ScrollableHeight() <= 0f)
+            ScrollIntoView(_scrollRect, _viewportTransform, _contentTransform, selected.transform as RectTransform);
+        }
+
+        /// <summary>
+        /// Scrolls <paramref name="scrollRect"/> vertically by the least amount that brings
+        /// <paramref name="target"/> fully into <paramref name="viewport"/>.
+        /// </summary>
+        public static void ScrollIntoView(ScrollRect scrollRect, RectTransform viewport,
+            RectTransform content, RectTransform target)
+        {
+            Canvas.ForceUpdateCanvases();
+
+            if (scrollRect.ScrollableHeight() <= 0f)
             {
-                _scrollRect.verticalNormalizedPosition = 1f;
+                scrollRect.verticalNormalizedPosition = 1f;
                 return;
             }
 
-            var selectedTransform = selected.transform as RectTransform;
-            if (selectedTransform == null) return;
+            if (target == null) return;
 
-            var viewportBounds = new Bounds(_viewportTransform.rect.center, _viewportTransform.rect.size);
+            var viewportBounds = new Bounds(viewport.rect.center, viewport.rect.size);
             var selectedBounds = RectTransformUtility.CalculateRelativeRectTransformBounds(
-                _viewportTransform, selectedTransform);
+                viewport, target);
 
-            var newPos = _contentTransform.anchoredPosition.y;
+            var newPos = content.anchoredPosition.y;
             if (selectedBounds.max.y > viewportBounds.max.y)
             {
                 newPos -= selectedBounds.max.y - viewportBounds.max.y;
@@ -67,8 +77,8 @@ namespace YARG.Menu.Navigation
                 return;
             }
 
-            newPos = Mathf.Clamp(newPos, 0f, _scrollRect.ScrollableHeight());
-            _contentTransform.anchoredPosition = _contentTransform.anchoredPosition.WithY(newPos);
+            newPos = Mathf.Clamp(newPos, 0f, scrollRect.ScrollableHeight());
+            content.anchoredPosition = content.anchoredPosition.WithY(newPos);
         }
 
         private void OnDestroy()
