@@ -26,7 +26,8 @@ namespace YARG.Integration
         private float _retryAt;
         private bool  _toasted;
 
-        // Each command is a list edit plus an ID lookup, so this bounds the main thread's share per frame
+        // Each command makes a few linear passes over the setlist (syncing IDs, finding its entries and the current
+        // song), so this caps a frame at a few dozen passes. Publishing adds one more, only on a frame with a change.
         private const int MAX_COMMANDS_PER_FRAME = 8;
 
         private readonly List<SetlistEntry> _entries = new();
