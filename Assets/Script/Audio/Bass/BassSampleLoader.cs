@@ -141,7 +141,7 @@ namespace YARG.Audio.BASS
                 string path = pathWithoutExtension + format;
                 if (File.Exists(path))
                 {
-                    return path;
+                    return BassPlatformStrings.ToBassPath(path);
                 }
             }
 
