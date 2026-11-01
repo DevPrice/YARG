@@ -142,6 +142,10 @@
             "Off": "Off",
             "Skip": "Skip",
             "Start": "Start",
+            "Edit": "Edit",
+            "Browse": "Browse",
+            "Remove": "Remove",
+            "Clear": "Clear",
 
             "Up": "Up",
             "Down": "Down",

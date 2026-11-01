@@ -49,6 +49,10 @@ namespace YARG.Menu.Settings
             {
                 _focused = false;
                 _activeBackground.SetActive(false);
+                if (BaseSettingVisual != null)
+                {
+                    BaseSettingVisual.OnNavigationSchemePopped();
+                }
                 EditingChanged?.Invoke(false);
             };
 

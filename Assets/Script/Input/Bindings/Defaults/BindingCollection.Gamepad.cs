@@ -136,6 +136,8 @@ namespace YARG.Input
         {
             AddBinding(MenuAction.Start, gamepad.startButton);
             AddBinding(MenuAction.Select, gamepad.selectButton);
+            AddBinding(MenuAction.Search, gamepad.rightStickButton);
+            AddBinding(MenuAction.SelectArtist, gamepad.rightShoulder);
 
 #if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA
             if (gamepad is SwitchProControllerHID switchPad)
