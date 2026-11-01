@@ -60,7 +60,6 @@ namespace YARG.Integration
             public Socket      Socket;
             public ClientState State;
             public long        Deadline;
-            public ushort      Version;
 
             /// <summary>
             /// Changes on every accept, so a result for a dropped client never reaches the next one in this slot.
@@ -120,12 +119,10 @@ namespace YARG.Integration
         private int _serviceStart;
 
         private readonly ulong  _sessionNonce;
-        private readonly byte[] _helloBuffer  = new byte[SERVER_HELLO_SIZE];
-        private readonly byte[] _resultBuffer = new byte[RESULT_FRAME_SIZE];
-        private readonly byte[] _snapshotV1   = new byte[MAX_SNAPSHOT_BYTES];
-        private readonly byte[] _snapshotV2   = new byte[MAX_SNAPSHOT_BYTES];
-        private int  _snapshotV1Length;
-        private int  _snapshotV2Length;
+        private readonly byte[] _helloBuffer    = new byte[SERVER_HELLO_SIZE];
+        private readonly byte[] _resultBuffer   = new byte[RESULT_FRAME_SIZE];
+        private readonly byte[] _snapshotBuffer = new byte[MAX_SNAPSHOT_BYTES];
+        private int  _snapshotLength;
         private uint _snapshotRevision;
         private uint _snapshotToken;
 
@@ -300,10 +297,8 @@ namespace YARG.Integration
 
                     if (TakeLatestSnapshot())
                     {
-                        // Encode both, so a client of either version that connects later has one to start with
                         _snapshotToken = NextToken();
-                        _snapshotV1Length = WriteSnapshot(_snapshotV1, _reading, 1, _snapshotToken);
-                        _snapshotV2Length = WriteSnapshot(_snapshotV2, _reading, 2, _snapshotToken);
+                        _snapshotLength = WriteSnapshot(_snapshotBuffer, _reading, _snapshotToken);
                         _snapshotRevision = _reading.Revision;
                     }
 
@@ -372,7 +367,6 @@ namespace YARG.Integration
                 client.State = ClientState.Handshake;
                 client.Deadline = now + HandshakeTimeout;
                 client.Generation++;
-                client.Version = 0;
                 client.ReceivedCount = 0;
                 client.SentRevision = 0;
                 client.SentBytes = 0;
@@ -467,18 +461,17 @@ namespace YARG.Integration
             }
 
             ReadClientHello(received, out ushort minVersion, out ushort maxVersion);
-            ushort version = ChooseVersion(minVersion, maxVersion);
             var status = HelloStatus.Ok;
-            if (version == 0)
+            if (!SupportsVersion(minVersion, maxVersion))
             {
                 status = HelloStatus.NoCommonVersion;
             }
             else if (CountClients(ClientState.Ready) >= MAX_CLIENTS)
             {
                 status = HelloStatus.Busy;
-                version = 0;
             }
 
+            ushort version = status == HelloStatus.Ok ? VERSION : (ushort) 0;
             int length = WriteServerHello(_helloBuffer, version, status, _sessionNonce);
             client.Socket.Send(_helloBuffer, 0, length, SocketFlags.None, out var error);
             if (error != SocketError.Success)
@@ -506,7 +499,6 @@ namespace YARG.Integration
             }
 
             client.State = ClientState.Ready;
-            client.Version = version;
             Log("Setlist socket client connected");
 
             int extra = client.ReceivedCount - CLIENT_HELLO_SIZE;
@@ -544,7 +536,7 @@ namespace YARG.Integration
                 {
                     Acknowledge(client, token);
                 }
-                else if (type == FrameType.Command && client.Version >= 2)
+                else if (type == FrameType.Command)
                 {
                     if (!TryReadCommand(payload, out var command))
                     {
@@ -682,9 +674,7 @@ namespace YARG.Integration
                     continue;
                 }
 
-                var buffer = client.Version >= 2 ? _snapshotV2 : _snapshotV1;
-                int length = client.Version >= 2 ? _snapshotV2Length : _snapshotV1Length;
-                if (length == 0)
+                if (_snapshotLength == 0)
                 {
                     continue;
                 }
@@ -694,12 +684,12 @@ namespace YARG.Integration
                 // reading, so what it hasn't acknowledged is really unread, and keeping that under
                 // MAX_UNACKED_BYTES means the send fits in SEND_BUFFER_SIZE. Until results are acknowledged, the
                 // snapshot waits.
-                if (client.Unacked + length > MAX_UNACKED_BYTES)
+                if (client.Unacked + _snapshotLength > MAX_UNACKED_BYTES)
                 {
                     continue;
                 }
 
-                if (!Send(client, buffer, length, _snapshotToken))
+                if (!Send(client, _snapshotBuffer, _snapshotLength, _snapshotToken))
                 {
                     Drop(client);
                     continue;

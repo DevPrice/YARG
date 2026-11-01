@@ -7,13 +7,12 @@ using YARG.Playlists;
 namespace YARG.Integration
 {
     /// <summary>
-    /// The setlist socket's wire format, versions 1 (read-only) and 2 (entry IDs and commands). Little-endian
+    /// The setlist socket's wire format, version 2: snapshots with entry IDs, and commands. Little-endian
     /// throughout. Nothing here allocates.
     /// </summary>
     internal static class SetlistProtocol
     {
-        public const ushort MIN_VERSION = 1;
-        public const ushort MAX_VERSION = 2;
+        public const ushort VERSION = 2;
 
         public const int CLIENT_HELLO_SIZE = 8;
         public const int SERVER_HELLO_SIZE = 17;
@@ -23,8 +22,7 @@ namespace YARG.Integration
         public const int MAX_STRING_BYTES = 256;
         public const int RESULT_FRAME_SIZE = FRAME_HEADER_SIZE + 17;
 
-        private const int SNAPSHOT_HEADER_SIZE_V1 = 22;
-        private const int SNAPSHOT_HEADER_SIZE_V2 = 26;
+        private const int SNAPSHOT_HEADER_SIZE = 26;
         private const int MAX_ENTRY_SIZE = 4 + HashWrapper.HASH_SIZE_IN_BYTES + 4 + 3 * (2 + MAX_STRING_BYTES);
 
         private const byte FLAG_SHOW_IN_PROGRESS = 1 << 0;
@@ -97,14 +95,8 @@ namespace YARG.Integration
             _                                  => ResultStatus.Malformed,
         };
 
-        /// <summary>
-        /// The highest version both sides speak, or 0 when there's none.
-        /// </summary>
-        public static ushort ChooseVersion(ushort clientMin, ushort clientMax)
-        {
-            ushort version = Math.Min(clientMax, MAX_VERSION);
-            return version >= Math.Max(clientMin, MIN_VERSION) ? version : (ushort) 0;
-        }
+        public static bool SupportsVersion(ushort clientMin, ushort clientMax) =>
+            clientMin <= VERSION && VERSION <= clientMax;
 
         // "YSET". It isn't the start of an HTTP method or a TLS record (0x16), so a browser's request fails on its
         // first byte.
@@ -263,25 +255,21 @@ namespace YARG.Integration
         }
 
         /// <summary>
-        /// Encodes a Snapshot frame for <paramref name="version"/> into <paramref name="buffer"/>, which must hold
-        /// <see cref="MAX_SNAPSHOT_BYTES"/>. Entries that don't fit are left out and the truncated flag is set.
-        /// Returns the frame's size.
+        /// Encodes a Snapshot frame into <paramref name="buffer"/>, which must hold <see cref="MAX_SNAPSHOT_BYTES"/>.
+        /// Entries that don't fit are left out and the truncated flag is set. Returns the frame's size.
         /// </summary>
-        public static int WriteSnapshot(byte[] buffer, SetlistSnapshot snapshot, ushort version, uint token)
+        public static int WriteSnapshot(byte[] buffer, SetlistSnapshot snapshot, uint token)
         {
             var span = buffer.AsSpan(0, MAX_SNAPSHOT_BYTES);
-            int offset = FRAME_HEADER_SIZE + (version >= 2 ? SNAPSHOT_HEADER_SIZE_V2 : SNAPSHOT_HEADER_SIZE_V1);
+            int offset = FRAME_HEADER_SIZE + SNAPSHOT_HEADER_SIZE;
 
             int written = 0;
             while (written < snapshot.EntryCount && offset + MAX_ENTRY_SIZE <= span.Length)
             {
                 ref readonly var entry = ref snapshot.Entries[written];
 
-                if (version >= 2)
-                {
-                    BinaryPrimitives.WriteUInt32LittleEndian(span[offset..], entry.Id);
-                    offset += 4;
-                }
+                BinaryPrimitives.WriteUInt32LittleEndian(span[offset..], entry.Id);
+                offset += 4;
 
                 var hash = entry.Hash;
                 MemoryMarshal.Write(span[offset..], ref hash);
@@ -316,10 +304,7 @@ namespace YARG.Integration
             BinaryPrimitives.WriteUInt32LittleEndian(span[15..], (uint) snapshot.TotalCount);
             BinaryPrimitives.WriteUInt32LittleEndian(span[19..], (uint) written);
             BinaryPrimitives.WriteUInt32LittleEndian(span[23..], token);
-            if (version >= 2)
-            {
-                BinaryPrimitives.WriteUInt32LittleEndian(span[27..], snapshot.CurrentEntryId);
-            }
+            BinaryPrimitives.WriteUInt32LittleEndian(span[27..], snapshot.CurrentEntryId);
 
             return offset;
         }
