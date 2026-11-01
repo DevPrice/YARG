@@ -206,6 +206,7 @@ Some libraries/assets are **packaged** with the source code have licenses that m
 | [PolyHaven](https://polyhaven.com/) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/)
 | [BASS](https://www.un4seen.com/) | [Proprietary](https://www.un4seen.com/) (free for non-commercial use)
 | [Haukcode.sACN](https://github.com/HakanL/Haukcode.sACN) | [MIT](https://github.com/HakanL/Haukcode.sACN/blob/master/LICENSE) |
+| [SMBLibrary](https://github.com/TalAloni/SMBLibrary) | [LGPL-3.0-or-later](https://github.com/TalAloni/SMBLibrary/blob/master/License.txt) |
 | [aperitif chatter.wav by soundslikewillem](https://freesound.org/s/449550/)|[Attribution NonCommercial 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
 | [Crowd after Encore.wav by soundslikewillem](https://freesound.org/s/193064/)|[Attribution NonCommercial 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
 
