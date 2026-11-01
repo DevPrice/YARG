@@ -2,6 +2,7 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using YARG.Menu.Navigation;
 
 namespace YARG.Menu.Dialogs
 {
@@ -26,6 +27,11 @@ namespace YARG.Menu.Dialogs
                     eventSystem.SetSelectedGameObject(null);
                 }
             });
+        }
+
+        protected override NavigationScheme GetNavigationScheme()
+        {
+            return GamepadTextEntry.WithEditEntry(base.GetNavigationScheme(), _inputField);
         }
 
         public override void Submit()
