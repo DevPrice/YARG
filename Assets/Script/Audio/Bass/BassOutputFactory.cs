@@ -5,6 +5,7 @@ using YARG.Audio.BASS.Asio;
 using YARG.Audio.BASS.Wasapi;
 using YARG.Core.Audio;
 using YARG.Core.Logging;
+using YARG.Helpers;
 
 namespace YARG.Audio.BASS
 {
@@ -24,26 +25,16 @@ namespace YARG.Audio.BASS
             _wasapiMics = new BassWasapiMicManager(router);
         }
 
-        private static bool IsWindows =>
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-            true;
-#else
-            false;
-#endif
-
         public BassOutput? Create(string name)
         {
-            if (IsWindows)
+            if (PlatformFeatures.SupportsWasapi && BassWasapiOutput.IsWasapiDevice(name))
             {
-                if (BassWasapiOutput.IsWasapiDevice(name))
-                {
-                    return BassWasapiOutput.Find(name, _wasapiMics);
-                }
+                return BassWasapiOutput.Find(name, _wasapiMics);
+            }
 
-                if (BassAsioOutput.IsAsioDevice(name))
-                {
-                    return BassAsioOutput.Find(name, _router, _asioMics);
-                }
+            if (PlatformFeatures.SupportsAsio && BassAsioOutput.IsAsioDevice(name))
+            {
+                return BassAsioOutput.Find(name, _router, _asioMics);
             }
 
             return BassSharedOutput.Find(name, _router);
@@ -52,9 +43,13 @@ namespace YARG.Audio.BASS
         public List<(int id, string name)> GetAllDevices()
         {
             var devices = BassSharedOutput.GetDevices();
-            if (IsWindows)
+            if (PlatformFeatures.SupportsAsio)
             {
                 devices.AddRange(BassAsioOutput.GetDevices());
+            }
+
+            if (PlatformFeatures.SupportsWasapi)
+            {
                 devices.AddRange(BassWasapiOutput.GetDevices());
             }
 

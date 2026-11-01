@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using AOT;
 using ManagedBass;
 using ManagedBass.Wasapi;
 using YARG.Core.Audio;
@@ -14,16 +15,18 @@ namespace YARG.Audio.BASS.Wasapi
     /// </summary>
     internal sealed class BassWasapiMicManager : IDisposable
     {
+        private static readonly BassCallbackTargets<BassWasapiMicManager> NotifyTargets   = new();
+        private static readonly WasapiNotifyProcedure                     NotifyProcedure = OnWasapiNotify;
+
         private readonly Dictionary<int, BassWasapiMicCapture> _captures = new();
-        private readonly WasapiNotifyProcedure                 _notifyProcedure;
         private readonly BassAudioRouter                       _router;
         private          bool                                  _notificationsRegistered;
+        private          IntPtr                                _notifyUser;
         private          BassWasapiOutput?                     _output;
 
         public BassWasapiMicManager(BassAudioRouter router)
         {
             _router = router;
-            _notifyProcedure = OnWasapiNotify;
         }
 
         public void Dispose()
@@ -42,12 +45,16 @@ namespace YARG.Audio.BASS.Wasapi
         public bool AttachOutput(BassWasapiOutput output)
         {
             _output = output;
-            if (BassWasapi.SetNotify(_notifyProcedure, IntPtr.Zero))
+            NotifyTargets.Remove(_notifyUser);
+            _notifyUser = NotifyTargets.Add(this);
+            if (BassWasapi.SetNotify(NotifyProcedure, _notifyUser))
             {
                 _notificationsRegistered = true;
                 return true;
             }
 
+            NotifyTargets.Remove(_notifyUser);
+            _notifyUser = IntPtr.Zero;
             _output = null;
             YargLogger.LogFormatError("Failed to register WASAPI device notifications: {0}", Bass.LastError);
             return false;
@@ -185,7 +192,11 @@ namespace YARG.Audio.BASS.Wasapi
             return capture;
         }
 
-        private void OnWasapiNotify(WasapiNotificationType notify, int device, IntPtr user)
+        [MonoPInvokeCallback(typeof(WasapiNotifyProcedure))]
+        private static void OnWasapiNotify(WasapiNotificationType notify, int device, IntPtr user) =>
+            NotifyTargets.Get(user)?.HandleWasapiNotify(notify, device);
+
+        private void HandleWasapiNotify(WasapiNotificationType notify, int device)
         {
             _output?.OnWasapiNotify(notify, device);
             foreach (var capture in _captures.Values)
@@ -220,6 +231,8 @@ namespace YARG.Audio.BASS.Wasapi
         {
             if (_notificationsRegistered && BassWasapi.SetNotify(null, IntPtr.Zero))
             {
+                NotifyTargets.Remove(_notifyUser);
+                _notifyUser = IntPtr.Zero;
                 _notificationsRegistered = false;
             }
         }

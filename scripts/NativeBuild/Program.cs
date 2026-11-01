@@ -43,11 +43,21 @@ internal static class Program
         string? outputDirectory = null;
         bool noCopy = false;
         bool verifyCommittedPlugin = false;
+        NativeTarget target = NativeTarget.Host;
 
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
+                case "--target":
+                    target = ReadValue(args, ref i, "--target") switch
+                    {
+                        "host" => NativeTarget.Host,
+                        "windows-store" => NativeTarget.WindowsStore,
+                        _ => throw new ToolException("--target must be host or windows-store."),
+                    };
+
+                    break;
                 case "--configuration":
                     configuration = ReadValue(args, ref i, "--configuration");
                     if (configuration is not ("Debug" or "Release" or "RelWithDebInfo"))
@@ -87,7 +97,7 @@ internal static class Program
         }
 
         return new BuildOptions(
-            configuration, outputDirectory, noCopy, verifyCommittedPlugin);
+            configuration, outputDirectory, noCopy, verifyCommittedPlugin, target);
     }
 
     private static PackageOptions ParsePackageOptions(string[] args)
@@ -182,6 +192,9 @@ internal static class Program
         Console.WriteLine(
             """
             build options:
+              --target <host|windows-store>                    Default: host. windows-store
+                                                               builds the UWP x64 plugin
+                                                               (Windows only, no tests).
               --configuration <Debug|Release|RelWithDebInfo>  Default: Release.
               --output <directory>                             Write artifact files there.
               --no-copy                                         Do not copy plugin files.
@@ -213,7 +226,14 @@ internal sealed record BuildOptions(
     string Configuration,
     string? OutputDirectory,
     bool NoCopy,
-    bool VerifyCommittedPlugin);
+    bool VerifyCommittedPlugin,
+    NativeTarget Target);
+
+internal enum NativeTarget
+{
+    Host,
+    WindowsStore,
+}
 
 internal sealed record PackageOptions(
     string RemoteRef,

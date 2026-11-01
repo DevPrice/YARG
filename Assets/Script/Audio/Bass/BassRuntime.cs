@@ -7,6 +7,7 @@ using ManagedBass.Wasapi;
 using UnityEngine;
 using YARG.Core.Audio;
 using YARG.Core.Logging;
+using YARG.Helpers;
 
 namespace YARG.Audio.BASS
 {
@@ -148,31 +149,7 @@ namespace YARG.Audio.BASS
             Bass.PluginFree(0);
         }
 
-        private static string GetBassDirectory()
-        {
-            string pluginDirectory = Path.Combine(Application.dataPath, "Plugins");
-
-#if !UNITY_EDITOR && UNITY_STANDALONE_WIN
-#if UNITY_64
-			pluginDirectory = Path.Combine(pluginDirectory, "x86_64");
-#else
-			pluginDirectory = Path.Combine(pluginDirectory, "x86");
-#endif
-#endif
-
-#if UNITY_EDITOR
-            pluginDirectory = Path.Combine(pluginDirectory, "BassNative");
-#endif
-
-#if UNITY_EDITOR_WIN
-            pluginDirectory = Path.Combine(pluginDirectory, "Windows/x86_64");
-#elif UNITY_EDITOR_OSX
-			pluginDirectory = Path.Combine(pluginDirectory, "Mac");
-#elif UNITY_EDITOR_LINUX
-            pluginDirectory = Path.Combine(pluginDirectory, "Linux/x86_64");
-#endif
-
-            return pluginDirectory;
-        }
+        private static string GetBassDirectory() =>
+            NativeLibraries.GetPluginDirectory(Application.dataPath, "BassNative");
     }
 }

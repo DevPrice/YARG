@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Threading;
+using AOT;
 using ManagedBass.Asio;
 using YARG.Core.Logging;
 
@@ -18,18 +19,20 @@ namespace YARG.Audio.BASS.Asio
         private const int MAX_OUTPUT_CHANNELS  = 30;
         private const int PROCESSING_THREADS   = 1;
 
-        private readonly int                 _deviceId;
-        private readonly AsioNotifyProcedure _driverNotification;
-        private readonly Action              _restartOutput;
-        private          bool                _notificationsRegistered;
-        private          int                 _restartQueued;
-        private          int                 _state = (int) DriverState.Created;
+        private static readonly BassCallbackTargets<BassAsioDriver> NotifyTargets      = new();
+        private static readonly AsioNotifyProcedure                 DriverNotification = OnDriverNotify;
+
+        private readonly int    _deviceId;
+        private readonly Action _restartOutput;
+        private          bool   _notificationsRegistered;
+        private          IntPtr _notifyUser;
+        private          int    _restartQueued;
+        private          int    _state = (int) DriverState.Created;
 
         public BassAsioDriver(int deviceId, Action restartOutput)
         {
             _deviceId = deviceId;
             _restartOutput = restartOutput;
-            _driverNotification = OnDriverNotify;
         }
 
         public  int         SampleRate     { get; private set; }
@@ -188,12 +191,16 @@ namespace YARG.Audio.BASS.Asio
         public void RegisterNotify()
         {
             BassAsio.CurrentDevice = _deviceId;
-            if (BassAsio.SetNotify(_driverNotification, IntPtr.Zero))
+            NotifyTargets.Remove(_notifyUser);
+            _notifyUser = NotifyTargets.Add(this);
+            if (BassAsio.SetNotify(DriverNotification, _notifyUser))
             {
                 _notificationsRegistered = true;
                 return;
             }
 
+            NotifyTargets.Remove(_notifyUser);
+            _notifyUser = IntPtr.Zero;
             YargLogger.LogFormatWarning("Failed to register for ASIO driver notifications: {0}", BassAsio.LastError);
         }
 
@@ -250,10 +257,16 @@ namespace YARG.Audio.BASS.Asio
             }
 
             BassAsio.SetNotify(null, IntPtr.Zero);
+            NotifyTargets.Remove(_notifyUser);
+            _notifyUser = IntPtr.Zero;
             _notificationsRegistered = false;
         }
 
-        private void OnDriverNotify(AsioNotify notification, IntPtr _)
+        [MonoPInvokeCallback(typeof(AsioNotifyProcedure))]
+        private static void OnDriverNotify(AsioNotify notification, IntPtr user) =>
+            NotifyTargets.Get(user)?.HandleDriverNotify(notification);
+
+        private void HandleDriverNotify(AsioNotify notification)
         {
             if (notification is not AsioNotify.Reset and not AsioNotify.Rate)
             {

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using AOT;
 using ManagedBass;
 using ManagedBass.Mix;
 using YARG.Core.Audio;
@@ -14,6 +15,9 @@ namespace YARG.Audio.BASS
     /// </summary>
     internal sealed class BassSamplePlayer : IDisposable
     {
+        private static readonly BassCallbackTargets<BassSamplePlayer> VoiceFreedTargets   = new();
+        private static readonly SyncProcedure                         VoiceFreedProcedure = OnVoiceFreed;
+
         private const    BassFlags       SAMPLE_CHANNEL_STREAM = (BassFlags) 2;
         private readonly HashSet<int>    _fadingVoices         = new();
         private readonly string          _name;
@@ -122,9 +126,11 @@ namespace YARG.Audio.BASS
                     return false;
                 }
 
-                if (Bass.ChannelSetSync(voice, SyncFlags.Free, 0, OnVoiceFreed) == 0)
+                var user = VoiceFreedTargets.Add(this);
+                if (BassCallbackImports.ChannelSetSync(voice, SyncFlags.Free, 0, VoiceFreedProcedure, user) == 0)
                 {
                     var error = Bass.LastError;
+                    VoiceFreedTargets.Remove(user);
                     Bass.StreamFree(voice);
                     YargLogger.LogFormatError("Failed to track {0} sample voice: {1}!", _name, error);
                     return false;
@@ -256,7 +262,16 @@ namespace YARG.Audio.BASS
             return stream;
         }
 
-        private void OnVoiceFreed(int _, int channelHandle, int __, IntPtr ___)
+        // A Free sync fires exactly once per voice, so its registration ends here.
+        [MonoPInvokeCallback(typeof(SyncProcedure))]
+        private static void OnVoiceFreed(int _, int channelHandle, int __, IntPtr user)
+        {
+            var player = VoiceFreedTargets.Get(user);
+            VoiceFreedTargets.Remove(user);
+            player?.HandleVoiceFreed(channelHandle);
+        }
+
+        private void HandleVoiceFreed(int channelHandle)
         {
             lock (_stateLock)
             {

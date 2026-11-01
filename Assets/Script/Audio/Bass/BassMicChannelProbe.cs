@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Threading;
+using AOT;
 using ManagedBass;
 using YARG.Core.Logging;
 
@@ -24,16 +25,25 @@ namespace YARG.Audio.BASS
             (1, 44100),
         };
 
+        private static readonly BassCallbackTargets<BassMicChannelProbe> Targets               = new();
+        private static readonly RecordProcedure                          ReceiveFrameProcedure = OnReceiveFrame;
+
         private readonly ManualResetEventSlim _frameReceived = new(false);
         private readonly int                  _reportedChannelCount;
+        private readonly IntPtr               _user;
         private          short[]              _latestFrame = Array.Empty<short>();
 
         private BassMicChannelProbe(int reportedChannelCount)
         {
             _reportedChannelCount = reportedChannelCount;
+            _user = Targets.Add(this);
         }
 
-        public void Dispose() => _frameReceived.Dispose();
+        public void Dispose()
+        {
+            Targets.Remove(_user);
+            _frameReceived.Dispose();
+        }
 
         public static int? DetectChannelCount(int deviceId, string name)
         {
@@ -53,8 +63,8 @@ namespace YARG.Audio.BASS
                 foreach ((int channels, int rate) in PROBE_CONFIGS)
                 {
                     using var probe = new BassMicChannelProbe(channels);
-                    int handle = Bass.RecordStart(rate, channels, BassFlags.Default, devicePeriod, probe.ReceiveFrame,
-                        IntPtr.Zero);
+                    int handle = BassCallbackImports.RecordStart(rate, channels, BassFlags.Default, devicePeriod,
+                        ReceiveFrameProcedure, probe._user);
 
                     if (handle == 0)
                     {
@@ -138,7 +148,11 @@ namespace YARG.Audio.BASS
             }
         }
 
-        private bool ReceiveFrame(int handle, IntPtr buffer, int length, IntPtr user)
+        [MonoPInvokeCallback(typeof(RecordProcedure))]
+        private static bool OnReceiveFrame(int handle, IntPtr buffer, int length, IntPtr user) =>
+            Targets.Get(user)?.ReceiveFrame(buffer, length) ?? true;
+
+        private bool ReceiveFrame(IntPtr buffer, int length)
         {
             if (length <= 0)
             {
