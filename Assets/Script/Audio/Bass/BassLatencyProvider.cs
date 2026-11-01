@@ -14,7 +14,7 @@ namespace YARG.Audio.BASS
         {
             get
             {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || (UNITY_WSA && !UNITY_EDITOR)
                 int deviceBufferLength = Math.Max(0, Bass.DeviceBufferLength);
                 int devicePeriod = Math.Max(0, Bass.GetConfig(Configuration.DevicePeriod));
                 int updatePeriod = Math.Max(0, Bass.UpdatePeriod);

@@ -278,7 +278,8 @@ namespace YARG.Audio.BASS
             {
                 return false;
             }
-#else
+#elif UNITY_EDITOR || !UNITY_WSA
+            // On UWP, BASS may expose only the "Default" recording device, so keep it there.
             if (info.Name == "Default")
             {
                 return false;
