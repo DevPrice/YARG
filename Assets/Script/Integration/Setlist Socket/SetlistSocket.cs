@@ -17,6 +17,13 @@ namespace YARG.Integration
     /// </summary>
     public class SetlistSocket : MonoSingleton<SetlistSocket>
     {
+#if UNITY_STANDALONE || UNITY_EDITOR
+        public static bool IsSupported => true;
+#else
+        // UWP blocks loopback connections from other apps
+        public static bool IsSupported => false;
+#endif
+
         // Next to the Data Stream's 36107
         public const int PORT = 36108;
 
