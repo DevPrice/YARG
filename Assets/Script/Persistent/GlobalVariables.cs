@@ -105,6 +105,9 @@ namespace YARG
         private void Start()
         {
             SettingsManager.LoadSettings();
+#if UNITY_WSA && !UNITY_EDITOR
+            Platform.Xbox.XboxFirstRunDefaults.Apply();
+#endif
             InputManager.Initialize();
 
             LoadScene(SceneIndex.Menu);

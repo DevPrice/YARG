@@ -188,6 +188,7 @@ namespace YARG.Settings
                 nameof(Settings.BackgroundFpsCap),
                 new FieldMetadata(nameof(Settings.FullscreenMode), visibleWhen: SupportsWindowModes),
                 new FieldMetadata(nameof(Settings.Resolution), visibleWhen: SupportsWindowModes),
+                new FieldMetadata(nameof(Settings.DisplayModePreference), visibleWhen: SupportsDisplayModePreference),
                 nameof(Settings.FpsStats),
 
                 new HeaderMetadata("Visuals", showPreview: true),
@@ -347,6 +348,8 @@ namespace YARG.Settings
         private static bool SupportsWindowModes() => PlatformFeatures.SupportsWindowModes;
 
         private static bool SupportsDiscord() => PlatformFeatures.SupportsDiscord;
+
+        private static bool SupportsDisplayModePreference() => PlatformFeatures.SupportsDisplayModePreference;
 
         public static void LoadSettings()
         {

@@ -1328,6 +1328,15 @@
                     "Hide": "Hide"
                 }
             },
+            "DisplayModePreference": {
+                "Name": "Display Mode",
+                "Description": "Chooses the TV output mode. Prefer Refresh Rate picks the fastest refresh rate the TV offers, then the highest resolution up to the console's own setting. Use VSync with it for a steady framerate.",
+                "Dropdown": {
+                    "RefreshRate": "Prefer Refresh Rate",
+                    "Resolution": "Prefer Resolution",
+                    "System": "Console Default"
+                }
+            },
             "DMXBlueChannels": {
                 "Name": "DMX Blue",
                 "Description": "The eight channels here represent the eight blue LEDs of the StageKit. They will receive on (255) and off (0) commands."

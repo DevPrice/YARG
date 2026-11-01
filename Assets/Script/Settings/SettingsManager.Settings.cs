@@ -599,6 +599,14 @@ namespace YARG.Settings
                     FullScreenMode.Windowed,
                 };
 
+            public DropdownSetting<Platform.Xbox.DisplayModePreference> DisplayModePreference { get; }
+                = new(Platform.Xbox.DisplayModePreference.RefreshRate, DisplayModePreferenceCallback)
+                {
+                    Platform.Xbox.DisplayModePreference.RefreshRate,
+                    Platform.Xbox.DisplayModePreference.Resolution,
+                    Platform.Xbox.DisplayModePreference.System,
+                };
+
             public DropdownSetting<QualityMode> VenueRenderingQuality { get; }
                  = new(QualityMode.NativeAA, VenueQualityModeCallback)
                  {
@@ -1110,12 +1118,19 @@ namespace YARG.Settings
             private static void FullscreenModeCallback(FullScreenMode value)
             {
                 // Unity saves this information automatically
-                if (!IsInitialized)
+                if (!IsInitialized || !PlatformFeatures.SupportsWindowModes)
                 {
                     return;
                 }
 
                 Screen.fullScreenMode = value;
+            }
+
+            private static void DisplayModePreferenceCallback(Platform.Xbox.DisplayModePreference value)
+            {
+#if UNITY_WSA && !UNITY_EDITOR
+                Platform.Xbox.XboxDisplayMode.Apply(value);
+#endif
             }
 
             private static void VenueQualityModeCallback(QualityMode value)
